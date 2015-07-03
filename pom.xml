@@ -4,7 +4,7 @@
 
     <groupId>org.pinus4j</groupId>
     <artifactId>pinus</artifactId>
-    <version>1.1.1</version>
+    <version>1.1.2</version>
     <packaging>pom</packaging>
 
     <name>pinus</name>
@@ -18,18 +18,21 @@
         </license>
     </licenses>
 
-    <developers>
-        <developer>
-            <name>DuanBingnan</name>
-            <email>duanbn@126.com</email>
-        </developer>
-    </developers>
+    <issueManagement>
+        <system>acfun nexus</system>
+        <url>http://nexus.acfun.tv/nexus/content/groups/public/</url>
+    </issueManagement>
 
-    <scm>
-        <connection>scm:git:https://github.com/duanbn/pinus4j.git</connection>
-        <developerConnection>scm:git:https://github.com/duanbn/pinus4j.git</developerConnection>
-        <url>https://github.com/duanbn/pinus4j.git</url>
-    </scm>
+    <distributionManagement>
+        <repository>
+            <id>AcFun-Release</id>
+            <url>http://nexus.acfun.tv/nexus/content/repositories/AcFun-Release</url>
+        </repository>
+        <snapshotRepository>
+            <id>AcFun-Snapshot</id>
+            <url>http://nexus.acfun.tv/nexus/content/repositories/AcFun-Snapshot</url>
+        </snapshotRepository>
+    </distributionManagement>
 
     <modules>
         <module>pinus-cluster</module>
@@ -44,7 +47,7 @@
         <dbcp.version>1.4</dbcp.version>
         <slf4j.version>1.7.7</slf4j.version>
         <jta.version>1.2</jta.version>
-        <spring.version>3.2.2.RELEASE</spring.version>
+        <spring.version>4.1.7.RELEASE</spring.version>
     </properties>
 
     <dependencyManagement>
@@ -204,65 +207,18 @@
         </plugins>
     </build>
 
-    <profiles>
-        <profile>
-            <id>release</id>
-            <build>
-                <plugins>
-                    <!-- Source -->
-                    <plugin>
-                        <groupId>org.apache.maven.plugins</groupId>
-                        <artifactId>maven-source-plugin</artifactId>
-                        <version>2.2.1</version>
-                        <executions>
-                            <execution>
-                                <phase>package</phase>
-                                <goals>
-                                    <goal>jar-no-fork</goal>
-                                </goals>
-                            </execution>
-                        </executions>
-                    </plugin>
-                    <!-- Javadoc -->
-                    <plugin>
-                        <groupId>org.apache.maven.plugins</groupId>
-                        <artifactId>maven-javadoc-plugin</artifactId>
-                        <version>2.9.1</version>
-                        <executions>
-                            <execution>
-                                <phase>package</phase>
-                                <goals>
-                                    <goal>jar</goal>
-                                </goals>
-                            </execution>
-                        </executions>
-                    </plugin>
-                    <!-- GPG -->
-                    <plugin>
-                        <groupId>org.apache.maven.plugins</groupId>
-                        <artifactId>maven-gpg-plugin</artifactId>
-                        <version>1.5</version>
-                        <executions>
-                            <execution>
-                                <phase>verify</phase>
-                                <goals>
-                                    <goal>sign</goal>
-                                </goals>
-                            </execution>
-                        </executions>
-                    </plugin>
-                </plugins>
-            </build>
-            <distributionManagement>
-                <snapshotRepository>
-                    <id>oss</id>
-                    <url>https://oss.sonatype.org/content/repositories/snapshots/</url>
-                </snapshotRepository>
-                <repository>
-                    <id>oss</id>
-                    <url>https://oss.sonatype.org/service/local/staging/deploy/maven2/</url>
-                </repository>
-            </distributionManagement>
-        </profile>
-    </profiles>
+
+    <repositories>
+        <repository>
+            <id>acfun nexus</id>
+            <url>http://nexus.acfun.tv/nexus/content/groups/public/</url>
+            <layout>default</layout>
+            <releases>
+                <enabled>true</enabled>
+            </releases>
+            <snapshots>
+                <enabled>true</enabled>
+            </snapshots>
+        </repository>
+    </repositories>
 </project>
