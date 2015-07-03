@@ -322,9 +322,6 @@ public class ReflectUtil {
      */
     public static Object getProperty(Object obj, String propertyName) throws Exception {
         Field f = getField(obj.getClass(), propertyName);
-        if (f == null) {
-            f = obj.getClass().getDeclaredField(propertyName);
-        }
         f.setAccessible(true);
         return f.get(obj);
     }
@@ -339,25 +336,30 @@ public class ReflectUtil {
      */
     public static void setProperty(Object obj, String propertyName, Object value) throws Exception {
         Field f = getField(obj.getClass(), propertyName);
-        if (f == null) {
-            f = obj.getClass().getDeclaredField(propertyName);
-        }
         f.setAccessible(true);
 
-        if (f.getType() == Boolean.TYPE || f.getType() == Boolean.class) {
+        if (value == null) {
+            f.set(obj, null);
+            return;
+        }
+
+        // 这里不能支持装箱类型，否则反射会报错
+        if (f.getType() == Boolean.TYPE) {
             f.setBoolean(obj, ((Boolean) value).booleanValue());
-        } else if (f.getType() == Integer.TYPE || f.getType() == Integer.class) {
+        } else if (f.getType() == Integer.TYPE) {
             f.setInt(obj, ((Number) value).intValue());
-        } else if (f.getType() == Byte.TYPE || f.getType() == Byte.class) {
+        } else if (f.getType() == Byte.TYPE) {
             f.setByte(obj, ((Number) value).byteValue());
-        } else if (f.getType() == Long.TYPE || f.getType() == Long.class) {
+        } else if (f.getType() == Long.TYPE) {
             f.setLong(obj, ((Number) value).longValue());
-        } else if (f.getType() == Short.TYPE || f.getType() == Short.class) {
+        } else if (f.getType() == Short.TYPE) {
             f.setShort(obj, ((Number) value).shortValue());
-        } else if (f.getType() == Float.TYPE || f.getType() == Short.class) {
+        } else if (f.getType() == Float.TYPE) {
             f.setFloat(obj, ((Number) value).floatValue());
-        } else if (f.getType() == Double.TYPE || f.getType() == Double.class) {
+        } else if (f.getType() == Double.TYPE) {
             f.setDouble(obj, ((Number) value).doubleValue());
+        } else if (f.getType() == Character.TYPE) {
+            f.setChar(obj, ((Character) value).charValue());
         } else {
             f.set(obj, value);
         }
@@ -492,7 +494,16 @@ public class ReflectUtil {
      * @return
      */
     public static Field getField(Class<?> clazz, String fieldName) {
-        return _aliasFieldCache.get(clazz.getName() + fieldName);
+        Field field = _aliasFieldCache.get(clazz.getName() + fieldName);
+        if (field == null) {
+            try {
+                field = clazz.getDeclaredField(fieldName);
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        }
+
+        return field;
     }
 
     /**
