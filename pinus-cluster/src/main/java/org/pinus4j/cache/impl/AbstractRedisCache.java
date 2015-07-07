@@ -25,9 +25,7 @@ import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import redis.clients.jedis.Jedis;
-import redis.clients.jedis.JedisShardInfo;
-import redis.clients.jedis.ShardedJedis;
+import redis.clients.jedis.*;
 
 import com.google.common.collect.Lists;
 
@@ -36,6 +34,8 @@ public abstract class AbstractRedisCache extends AbstractCache {
     public static final Logger LOG = LoggerFactory.getLogger(AbstractRedisCache.class);
 
     protected ShardedJedis     redisClient;
+
+    protected ShardedJedisPool shardedJedisPool;
 
     public AbstractRedisCache(String address, int expire) {
         super(address, expire);
@@ -57,6 +57,18 @@ public abstract class AbstractRedisCache extends AbstractCache {
             // TODO: 通过这个属性map来创建jedispool
             Map<String, String> properties = getProperties();
             System.out.println(properties);
+
+            JedisPoolConfig poolConfig = new JedisPoolConfig();
+            poolConfig.setTestWhileIdle(true);
+            poolConfig.setMaxIdle(6);
+            poolConfig.setMaxTotal(2000);
+            poolConfig.setMinEvictableIdleTimeMillis(60000);
+            poolConfig.setTimeBetweenEvictionRunsMillis(30000);
+            poolConfig.setNumTestsPerEvictionRun(-1);
+
+            this.shardedJedisPool = new ShardedJedisPool(poolConfig,shardInfos);
+
+
         } catch (Exception e) {
             throw new RuntimeException("connect redis server failure", e);
         }

@@ -25,6 +25,8 @@ public class RedisSecondCacheImpl extends AbstractRedisCache implements ISecondC
         }
 
         try {
+            redisClient = shardedJedisPool.getResource();
+
             String cacheKey = _buildGlobalCacheKey(whereSql, clusterName, tableName);
             this.redisClient.set(cacheKey.getBytes(), IOUtil.getBytes(data));
 
@@ -43,6 +45,8 @@ public class RedisSecondCacheImpl extends AbstractRedisCache implements ISecondC
         }
 
         try {
+            redisClient = shardedJedisPool.getResource();
+
             String cacheKey = _buildGlobalCacheKey(whereSql, clusterName, tableName);
             List data = IOUtil.getObject(this.redisClient.get(cacheKey.getBytes()), List.class);
 
@@ -62,6 +66,8 @@ public class RedisSecondCacheImpl extends AbstractRedisCache implements ISecondC
     @Override
     public void removeGlobal(String clusterName, String tableName) {
         try {
+            redisClient = shardedJedisPool.getResource();
+
             List<String> keys = new ArrayList<String>();
             Collection<Jedis> shards = this.redisClient.getAllShards();
             String cacheKey = _buildGlobalCacheKey(null, clusterName, tableName);
@@ -86,6 +92,8 @@ public class RedisSecondCacheImpl extends AbstractRedisCache implements ISecondC
         }
 
         try {
+            redisClient = shardedJedisPool.getResource();
+
             String cacheKey = _buildShardingCacheKey(whereSql, db);
             this.redisClient.set(cacheKey.getBytes(), IOUtil.getBytes(data));
 
@@ -104,6 +112,8 @@ public class RedisSecondCacheImpl extends AbstractRedisCache implements ISecondC
         }
 
         try {
+            redisClient = shardedJedisPool.getResource();
+
             String cacheKey = _buildShardingCacheKey(whereSql, db);
             List data = IOUtil.getObject(this.redisClient.get(cacheKey.getBytes()), List.class);
 
@@ -122,6 +132,8 @@ public class RedisSecondCacheImpl extends AbstractRedisCache implements ISecondC
     @Override
     public void remove(ShardingDBResource db) {
         try {
+            redisClient = shardedJedisPool.getResource();
+
             List<String> keys = new ArrayList<String>();
             Collection<Jedis> shards = this.redisClient.getAllShards();
             String cacheKey = _buildShardingCacheKey(null, db);

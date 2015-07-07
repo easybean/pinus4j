@@ -219,7 +219,9 @@ public class RedisPrimaryCacheImpl extends AbstractRedisCache implements IPrimar
     }
 
     private void _setCount(String key, long count) {
+
         try {
+            redisClient = shardedJedisPool.getResource();
             _removeCount(key);
             redisClient.incrBy(key, count);
 
@@ -228,11 +230,15 @@ public class RedisPrimaryCacheImpl extends AbstractRedisCache implements IPrimar
             }
         } catch (Exception e) {
             LOG.warn("操作缓存失败:" + e.getMessage());
+        } finally {
+            shardedJedisPool.returnResourceObject(redisClient);
         }
     }
 
     private void _removeCount(String key) {
         try {
+            redisClient = shardedJedisPool.getResource();
+
             redisClient.del(key);
             if (LOG.isDebugEnabled()) {
                 LOG.debug("[PRIMARY CACHE] - delete " + key);
@@ -244,6 +250,8 @@ public class RedisPrimaryCacheImpl extends AbstractRedisCache implements IPrimar
 
     private long _decrCount(String key, long delta) {
         try {
+            redisClient = shardedJedisPool.getResource();
+
             if (redisClient.get(key) != null) {
                 long count = redisClient.decrBy(key, delta);
                 if (LOG.isDebugEnabled()) {
@@ -260,6 +268,8 @@ public class RedisPrimaryCacheImpl extends AbstractRedisCache implements IPrimar
 
     private long _incrCount(String key, long delta) {
         try {
+            redisClient = shardedJedisPool.getResource();
+
             if (redisClient.get(key) != null) {
                 long count = redisClient.incrBy(key, delta);
                 if (LOG.isDebugEnabled()) {
@@ -276,6 +286,7 @@ public class RedisPrimaryCacheImpl extends AbstractRedisCache implements IPrimar
 
     private long _getCount(String key) {
         try {
+            redisClient = shardedJedisPool.getResource();
             String count = (String) redisClient.get(key);
             if (StringUtils.isNotBlank(count)) {
                 if (LOG.isDebugEnabled()) {
@@ -292,6 +303,7 @@ public class RedisPrimaryCacheImpl extends AbstractRedisCache implements IPrimar
 
     private void _put(String key, Object data) {
         try {
+            redisClient = shardedJedisPool.getResource();
             redisClient.set(key.getBytes(), IOUtil.getBytes(data));
             redisClient.expire(key, expire);
             if (LOG.isDebugEnabled()) {
@@ -319,6 +331,7 @@ public class RedisPrimaryCacheImpl extends AbstractRedisCache implements IPrimar
     @SuppressWarnings("unchecked")
     private <T> T _get(String key) {
         try {
+            redisClient = shardedJedisPool.getResource();
             T obj = (T) IOUtil.getObject(redisClient.get(key.getBytes()), Object.class);
             if (LOG.isDebugEnabled()) {
                 int hit = 0;
@@ -357,6 +370,7 @@ public class RedisPrimaryCacheImpl extends AbstractRedisCache implements IPrimar
 
     private void _remove(String key) {
         try {
+            redisClient = shardedJedisPool.getResource();
             redisClient.del(key);
             if (LOG.isDebugEnabled()) {
                 LOG.debug("[PRIMARY CACHE] - remove " + key);
