@@ -11,6 +11,7 @@ import org.pinus4j.utils.SecurityUtil;
 import org.pinus4j.utils.StringUtils;
 
 import redis.clients.jedis.Jedis;
+import redis.clients.jedis.ShardedJedis;
 
 public class RedisSecondCacheImpl extends AbstractRedisCache implements ISecondCache {
 
@@ -24,17 +25,21 @@ public class RedisSecondCacheImpl extends AbstractRedisCache implements ISecondC
             return;
         }
 
+        ShardedJedis redisClient = null;
         try {
-            redisClient = shardedJedisPool.getResource();
-
+            redisClient = jedisPool.getResource();
             String cacheKey = _buildGlobalCacheKey(whereSql, clusterName, tableName);
-            this.redisClient.set(cacheKey.getBytes(), IOUtil.getBytes(data));
+
+            redisClient.set(cacheKey.getBytes(), IOUtil.getBytes(data));
 
             if (LOG.isDebugEnabled()) {
                 LOG.debug("[SECOND CACHE] - put to cache done, key: " + cacheKey);
             }
         } catch (Exception e) {
             LOG.warn("operate second cache failure");
+        } finally {
+            if (redisClient != null)
+                redisClient.close();
         }
     }
 
@@ -44,11 +49,11 @@ public class RedisSecondCacheImpl extends AbstractRedisCache implements ISecondC
             return null;
         }
 
+        ShardedJedis redisClient = null;
         try {
-            redisClient = shardedJedisPool.getResource();
-
+            redisClient = jedisPool.getResource();
             String cacheKey = _buildGlobalCacheKey(whereSql, clusterName, tableName);
-            List data = IOUtil.getObject(this.redisClient.get(cacheKey.getBytes()), List.class);
+            List data = IOUtil.getObject(redisClient.get(cacheKey.getBytes()), List.class);
 
             if (LOG.isDebugEnabled() && data != null) {
                 LOG.debug("[SECOND CACHE] -  key " + cacheKey + " hit");
@@ -58,6 +63,9 @@ public class RedisSecondCacheImpl extends AbstractRedisCache implements ISecondC
         } catch (Exception e) {
             e.printStackTrace();
             LOG.warn("operate second cache failure");
+        } finally {
+            if (redisClient != null)
+                redisClient.close();
         }
 
         return null;
@@ -65,11 +73,11 @@ public class RedisSecondCacheImpl extends AbstractRedisCache implements ISecondC
 
     @Override
     public void removeGlobal(String clusterName, String tableName) {
+        ShardedJedis redisClient = null;
         try {
-            redisClient = shardedJedisPool.getResource();
-
+            redisClient = jedisPool.getResource();
             List<String> keys = new ArrayList<String>();
-            Collection<Jedis> shards = this.redisClient.getAllShards();
+            Collection<Jedis> shards = redisClient.getAllShards();
             String cacheKey = _buildGlobalCacheKey(null, clusterName, tableName);
             for (Jedis shard : shards) {
                 keys.addAll(shard.keys(cacheKey));
@@ -82,6 +90,9 @@ public class RedisSecondCacheImpl extends AbstractRedisCache implements ISecondC
             }
         } catch (Exception e) {
             LOG.warn("remove second cache failure");
+        } finally {
+            if (redisClient != null)
+                redisClient.close();
         }
     }
 
@@ -91,17 +102,20 @@ public class RedisSecondCacheImpl extends AbstractRedisCache implements ISecondC
             return;
         }
 
+        ShardedJedis redisClient = null;
         try {
-            redisClient = shardedJedisPool.getResource();
-
+            redisClient = jedisPool.getResource();
             String cacheKey = _buildShardingCacheKey(whereSql, db);
-            this.redisClient.set(cacheKey.getBytes(), IOUtil.getBytes(data));
+            redisClient.set(cacheKey.getBytes(), IOUtil.getBytes(data));
 
             if (LOG.isDebugEnabled()) {
                 LOG.debug("[SECOND CACHE] - put to cache done, key: " + cacheKey);
             }
         } catch (Exception e) {
             LOG.warn("operate second cache failure");
+        } finally {
+            if (redisClient != null)
+                redisClient.close();
         }
     }
 
@@ -111,11 +125,11 @@ public class RedisSecondCacheImpl extends AbstractRedisCache implements ISecondC
             return null;
         }
 
+        ShardedJedis redisClient = null;
         try {
-            redisClient = shardedJedisPool.getResource();
-
+            redisClient = jedisPool.getResource();
             String cacheKey = _buildShardingCacheKey(whereSql, db);
-            List data = IOUtil.getObject(this.redisClient.get(cacheKey.getBytes()), List.class);
+            List data = IOUtil.getObject(redisClient.get(cacheKey.getBytes()), List.class);
 
             if (LOG.isDebugEnabled() && data != null) {
                 LOG.debug("[SECOND CACHE] -  key " + cacheKey + " hit");
@@ -124,6 +138,9 @@ public class RedisSecondCacheImpl extends AbstractRedisCache implements ISecondC
             return data;
         } catch (Exception e) {
             LOG.warn("operate second cache failure");
+        } finally {
+            if (redisClient != null)
+                redisClient.close();
         }
 
         return null;
@@ -131,11 +148,11 @@ public class RedisSecondCacheImpl extends AbstractRedisCache implements ISecondC
 
     @Override
     public void remove(ShardingDBResource db) {
+        ShardedJedis redisClient = null;
         try {
-            redisClient = shardedJedisPool.getResource();
-
+            redisClient = jedisPool.getResource();
             List<String> keys = new ArrayList<String>();
-            Collection<Jedis> shards = this.redisClient.getAllShards();
+            Collection<Jedis> shards = redisClient.getAllShards();
             String cacheKey = _buildShardingCacheKey(null, db);
             for (Jedis shard : shards) {
                 keys.addAll(shard.keys(cacheKey));
@@ -148,6 +165,9 @@ public class RedisSecondCacheImpl extends AbstractRedisCache implements ISecondC
             }
         } catch (Exception e) {
             LOG.warn("remove second cache failure");
+        } finally {
+            if (redisClient != null)
+                redisClient.close();
         }
     }
 
