@@ -1,17 +1,16 @@
 package org.pinus4j.cache.impl;
 
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.List;
-
 import org.pinus4j.cache.ISecondCache;
 import org.pinus4j.cluster.resources.ShardingDBResource;
 import org.pinus4j.utils.IOUtil;
 import org.pinus4j.utils.SecurityUtil;
 import org.pinus4j.utils.StringUtils;
-
 import redis.clients.jedis.Jedis;
 import redis.clients.jedis.ShardedJedis;
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
 
 public class RedisSecondCacheImpl extends AbstractRedisCache implements ISecondCache {
 
@@ -25,12 +24,13 @@ public class RedisSecondCacheImpl extends AbstractRedisCache implements ISecondC
             return;
         }
 
-        ShardedJedis redisClient = null;
+        ShardedJedis jedis = null;
         try {
-            redisClient = jedisPool.getResource();
+            jedis = jedisPool.getResource();
             String cacheKey = _buildGlobalCacheKey(whereSql, clusterName, tableName);
-            redisClient.set(cacheKey.getBytes(), IOUtil.getBytes(data));
-            redisClient.expire(cacheKey.getBytes(), expire);
+
+            jedis.set(cacheKey.getBytes(), IOUtil.getBytes(data));
+            jedis.expire(cacheKey.getBytes(), expire);
 
             if (LOG.isDebugEnabled()) {
                 LOG.debug("[SECOND CACHE] - put to cache done, key: " + cacheKey);
@@ -38,8 +38,7 @@ public class RedisSecondCacheImpl extends AbstractRedisCache implements ISecondC
         } catch (Exception e) {
             LOG.warn("operate second cache failure");
         } finally {
-            if (redisClient != null)
-                redisClient.close();
+            jedisPool.returnResourceObject(jedis);
         }
     }
 
@@ -49,11 +48,11 @@ public class RedisSecondCacheImpl extends AbstractRedisCache implements ISecondC
             return null;
         }
 
-        ShardedJedis redisClient = null;
+        ShardedJedis jedis = null;
         try {
-            redisClient = jedisPool.getResource();
+            jedis = jedisPool.getResource();
             String cacheKey = _buildGlobalCacheKey(whereSql, clusterName, tableName);
-            List data = IOUtil.getObject(redisClient.get(cacheKey.getBytes()), List.class);
+            List data = IOUtil.getObject(jedis.get(cacheKey.getBytes()), List.class);
 
             if (LOG.isDebugEnabled() && data != null) {
                 LOG.debug("[SECOND CACHE] -  key " + cacheKey + " hit");
@@ -64,8 +63,7 @@ public class RedisSecondCacheImpl extends AbstractRedisCache implements ISecondC
             e.printStackTrace();
             LOG.warn("operate second cache failure");
         } finally {
-            if (redisClient != null)
-                redisClient.close();
+            jedisPool.returnResourceObject(jedis);
         }
 
         return null;
@@ -73,11 +71,11 @@ public class RedisSecondCacheImpl extends AbstractRedisCache implements ISecondC
 
     @Override
     public void removeGlobal(String clusterName, String tableName) {
-        ShardedJedis redisClient = null;
+        ShardedJedis jedis = null;
         try {
-            redisClient = jedisPool.getResource();
+            jedis = jedisPool.getResource();
             List<String> keys = new ArrayList<String>();
-            Collection<Jedis> shards = redisClient.getAllShards();
+            Collection<Jedis> shards = jedis.getAllShards();
             String cacheKey = _buildGlobalCacheKey(null, clusterName, tableName);
             for (Jedis shard : shards) {
                 keys.addAll(shard.keys(cacheKey));
@@ -91,8 +89,7 @@ public class RedisSecondCacheImpl extends AbstractRedisCache implements ISecondC
         } catch (Exception e) {
             LOG.warn("remove second cache failure");
         } finally {
-            if (redisClient != null)
-                redisClient.close();
+            jedisPool.returnResourceObject(jedis);
         }
     }
 
@@ -102,12 +99,12 @@ public class RedisSecondCacheImpl extends AbstractRedisCache implements ISecondC
             return;
         }
 
-        ShardedJedis redisClient = null;
+        ShardedJedis jedis = null;
         try {
-            redisClient = jedisPool.getResource();
+            jedis = jedisPool.getResource();
             String cacheKey = _buildShardingCacheKey(whereSql, db);
-            redisClient.set(cacheKey.getBytes(), IOUtil.getBytes(data));
-            redisClient.expire(cacheKey.getBytes(),expire);
+            jedis.set(cacheKey.getBytes(), IOUtil.getBytes(data));
+            jedis.expire(cacheKey.getBytes(), expire);
 
             if (LOG.isDebugEnabled()) {
                 LOG.debug("[SECOND CACHE] - put to cache done, key: " + cacheKey);
@@ -115,8 +112,7 @@ public class RedisSecondCacheImpl extends AbstractRedisCache implements ISecondC
         } catch (Exception e) {
             LOG.warn("operate second cache failure");
         } finally {
-            if (redisClient != null)
-                redisClient.close();
+            jedisPool.returnResourceObject(jedis);
         }
     }
 
@@ -126,11 +122,11 @@ public class RedisSecondCacheImpl extends AbstractRedisCache implements ISecondC
             return null;
         }
 
-        ShardedJedis redisClient = null;
+        ShardedJedis jedis = null;
         try {
-            redisClient = jedisPool.getResource();
+            jedis = jedisPool.getResource();
             String cacheKey = _buildShardingCacheKey(whereSql, db);
-            List data = IOUtil.getObject(redisClient.get(cacheKey.getBytes()), List.class);
+            List data = IOUtil.getObject(jedis.get(cacheKey.getBytes()), List.class);
 
             if (LOG.isDebugEnabled() && data != null) {
                 LOG.debug("[SECOND CACHE] -  key " + cacheKey + " hit");
@@ -140,8 +136,7 @@ public class RedisSecondCacheImpl extends AbstractRedisCache implements ISecondC
         } catch (Exception e) {
             LOG.warn("operate second cache failure");
         } finally {
-            if (redisClient != null)
-                redisClient.close();
+            jedisPool.returnResourceObject(jedis);
         }
 
         return null;
@@ -149,11 +144,11 @@ public class RedisSecondCacheImpl extends AbstractRedisCache implements ISecondC
 
     @Override
     public void remove(ShardingDBResource db) {
-        ShardedJedis redisClient = null;
+        ShardedJedis jedis = null;
         try {
-            redisClient = jedisPool.getResource();
+            jedis = jedisPool.getResource();
             List<String> keys = new ArrayList<String>();
-            Collection<Jedis> shards = redisClient.getAllShards();
+            Collection<Jedis> shards = jedis.getAllShards();
             String cacheKey = _buildShardingCacheKey(null, db);
             for (Jedis shard : shards) {
                 keys.addAll(shard.keys(cacheKey));
@@ -167,8 +162,7 @@ public class RedisSecondCacheImpl extends AbstractRedisCache implements ISecondC
         } catch (Exception e) {
             LOG.warn("remove second cache failure");
         } finally {
-            if (redisClient != null)
-                redisClient.close();
+            jedisPool.returnResourceObject(jedis);
         }
     }
 

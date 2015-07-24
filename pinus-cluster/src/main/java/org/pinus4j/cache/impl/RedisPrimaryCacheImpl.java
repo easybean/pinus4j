@@ -1,9 +1,5 @@
 package org.pinus4j.cache.impl;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-
 import org.pinus4j.cache.IPrimaryCache;
 import org.pinus4j.cluster.resources.ShardingDBResource;
 import org.pinus4j.utils.IOUtil;
@@ -11,8 +7,11 @@ import org.pinus4j.utils.ReflectUtil;
 import org.pinus4j.utils.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
 import redis.clients.jedis.ShardedJedis;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 
 public class RedisPrimaryCacheImpl extends AbstractRedisCache implements IPrimaryCache {
 
@@ -221,86 +220,84 @@ public class RedisPrimaryCacheImpl extends AbstractRedisCache implements IPrimar
     }
 
     private void _setCount(String key, long count) {
-        ShardedJedis redisClient = null;
+        ShardedJedis jedis = null;
         try {
-            redisClient = jedisPool.getResource();
-            _removeCount(key);
-            redisClient.incrBy(key, count);
-
+            jedis = jedisPool.getResource();
+            jedis.del(key);
+            jedis.incrBy(key, count);
             if (LOG.isDebugEnabled()) {
                 LOG.debug("[PRIMARY CACHE] - " + key + " set count=" + count);
             }
         } catch (Exception e) {
+            e.printStackTrace();
             LOG.warn("操作缓存失败:" + e.getMessage());
         } finally {
-            if (redisClient != null)
-                redisClient.close();
+            jedisPool.returnResourceObject(jedis);
         }
     }
 
     private void _removeCount(String key) {
-        ShardedJedis redisClient = null;
+        ShardedJedis jedis = null;
         try {
-            redisClient = jedisPool.getResource();
-            redisClient.del(key);
+            jedis = jedisPool.getResource();
+            jedis.del(key);
             if (LOG.isDebugEnabled()) {
                 LOG.debug("[PRIMARY CACHE] - delete " + key);
             }
         } catch (Exception e) {
+            e.printStackTrace();
             LOG.warn("操作缓存失败:" + e.getMessage());
         } finally {
-            if (redisClient != null)
-                redisClient.close();
+            jedisPool.returnResourceObject(jedis);
         }
     }
 
     private long _decrCount(String key, long delta) {
-        ShardedJedis redisClient = null;
+        ShardedJedis jedis = null;
         try {
-            redisClient = jedisPool.getResource();
-            if (redisClient.get(key) != null) {
-                long count = redisClient.decrBy(key, delta);
+            jedis = jedisPool.getResource();
+            if (jedis.exists(key)) {
+                long count = jedis.decrBy(key, delta);
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("[PRIMARY CACHE] - decr " + key + " " + delta);
                 }
                 return count;
             }
         } catch (Exception e) {
+            e.printStackTrace();
             LOG.warn("操作缓存失败:" + e.getMessage());
         } finally {
-            if (redisClient != null)
-                redisClient.close();
+            jedisPool.returnResourceObject(jedis);
         }
-
         return -1;
     }
 
     private long _incrCount(String key, long delta) {
-        ShardedJedis redisClient = null;
+        ShardedJedis jedis = null;
         try {
-            redisClient = jedisPool.getResource();
-            if (redisClient.get(key) != null) {
-                long count = redisClient.incrBy(key, delta);
+            jedis = jedisPool.getResource();
+            if (jedis.exists(key)) {
+                long count = jedis.incrBy(key, delta);
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("[PRIMARY CACHE] - incr " + key + " " + delta);
                 }
                 return count;
             }
         } catch (Exception e) {
+            e.printStackTrace();
             LOG.warn("操作缓存失败:" + e.getMessage());
         } finally {
-            if (redisClient != null)
-                redisClient.close();
+            jedisPool.returnResourceObject(jedis);
         }
 
         return -1;
     }
 
     private long _getCount(String key) {
-        ShardedJedis redisClient = null;
+        ShardedJedis jedis = null;
         try {
-            redisClient = jedisPool.getResource();
-            String count = (String) redisClient.get(key);
+            jedis = jedisPool.getResource();
+            String count = (String) jedis.get(key);
             if (StringUtils.isNotBlank(count)) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("[PRIMARY CACHE] - get " + key + " " + count);
@@ -310,27 +307,26 @@ public class RedisPrimaryCacheImpl extends AbstractRedisCache implements IPrimar
         } catch (Exception e) {
             LOG.warn("操作缓存失败:" + e.getMessage());
         } finally {
-            if (redisClient != null)
-                redisClient.close();
+            jedisPool.returnResourceObject(jedis);
         }
 
         return -1l;
     }
 
     private void _put(String key, Object data) {
-        ShardedJedis redisClient = null;
+        ShardedJedis jedis = null;
         try {
-            redisClient = jedisPool.getResource();
-            redisClient.set(key.getBytes(), IOUtil.getBytes(data));
-            redisClient.expire(key, expire);
+            jedis = jedisPool.getResource();
+            jedis.set(key.getBytes(), IOUtil.getBytes(data));
+            jedis.expire(key, expire);
             if (LOG.isDebugEnabled()) {
                 LOG.debug("[PRIMARY CACHE] - put " + key + " value=" + data);
             }
         } catch (Exception e) {
+            e.printStackTrace();
             LOG.warn("操作缓存失败:" + e.getMessage());
         } finally {
-            if (redisClient != null)
-                redisClient.close();
+            jedisPool.returnResourceObject(jedis);
         }
     }
 
@@ -365,8 +361,7 @@ public class RedisPrimaryCacheImpl extends AbstractRedisCache implements IPrimar
         } catch (Exception e) {
             LOG.warn("操作缓存失败:" + e.getMessage());
         } finally {
-            if (redisClient != null)
-                redisClient.close();
+            jedisPool.returnResourceObject(redisClient);
         }
 
         return null;
@@ -392,29 +387,28 @@ public class RedisPrimaryCacheImpl extends AbstractRedisCache implements IPrimar
         return datas;
     }
 
-    private void _remove(String key) {
-        ShardedJedis redisClient = null;
+    private boolean _remove(String key) {
+        ShardedJedis jedis = null;
+        boolean result = false;
         try {
-            redisClient = jedisPool.getResource();
-            redisClient.del(key);
+            jedis = jedisPool.getResource();
+            Long count = jedis.del(key);
+            result = count > 0;
             if (LOG.isDebugEnabled()) {
-                LOG.debug("[PRIMARY CACHE] - remove " + key);
+                LOG.debug("[PRIMARY CACHE] - remove " + key +",result="+result);
             }
         } catch (Exception e) {
+            e.printStackTrace();
             LOG.warn("操作缓存失败:" + e.getMessage());
         } finally {
-            if (redisClient != null)
-                redisClient.close();
+            jedisPool.returnResourceObject(jedis);
         }
+        return false;
     }
 
     private void _remove(List<String> keys) {
-        try {
-            for (String key : keys) {
-                _remove(key);
-            }
-        } catch (Exception e) {
-            LOG.warn("操作缓存失败:" + e.getMessage());
+        for (String key : keys) {
+            _remove(key);
         }
     }
 
