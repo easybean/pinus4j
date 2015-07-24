@@ -19,6 +19,7 @@ package org.pinus4j.api.query;
 import java.lang.reflect.Array;
 
 import org.pinus4j.datalayer.SQLBuilder;
+import org.pinus4j.utils.ReflectUtil;
 import org.pinus4j.utils.StringUtils;
 
 /**
@@ -61,7 +62,33 @@ public class Condition {
 	 * 
 	 * @param field
 	 *            条件字段
-	 * @param values
+	 * @param value
+	 *            条件值
+	 * @param opt
+	 *            条件枚举
+	 */
+	private Condition(String field, Object value, QueryOpt opt,Class<?> clazz) {
+		if (StringUtils.isBlank(field)) {
+			throw new IllegalArgumentException("条件字段不能为空, condition field=" + field);
+		}
+		if (value == null) {
+			throw new IllegalArgumentException("参数错误, condition value=" + value);
+		}
+		if (value.getClass().isArray() && Array.getLength(value) == 0) {
+			throw new IllegalArgumentException("参数错误, condition value是数组并且数组长度为0");
+		}
+
+		this.field = ReflectUtil.getFieldName(ReflectUtil.getField(clazz, field));
+		this.value = SQLBuilder.formatValue(value);
+		this.opt = opt;
+	}
+
+	/**
+	 * 构造方法.
+	 *
+	 * @param field
+	 *            条件字段
+	 * @param value
 	 *            条件值
 	 * @param opt
 	 *            条件枚举
@@ -154,11 +181,11 @@ public class Condition {
 	 * @param value
 	 *            字段值
 	 */
-	public static Condition eq(String field, Object value) {
+	public static Condition eq(String field, Object value,Class<?> clazz) {
 		if (value == null) {
 			throw new IllegalArgumentException("参数错误, condition value=null");
 		}
-		Condition cond = new Condition(field, value, QueryOpt.EQ);
+		Condition cond = new Condition(field, value, QueryOpt.EQ,clazz);
 		return cond;
 	}
 
@@ -170,11 +197,11 @@ public class Condition {
 	 * @param value
 	 *            字段值
 	 */
-	public static Condition noteq(String field, Object value) {
+	public static Condition noteq(String field, Object value,Class<?> clazz) {
 		if (value == null) {
 			throw new IllegalArgumentException("参数错误, condition value=null");
 		}
-		Condition cond = new Condition(field, value, QueryOpt.NOTEQ);
+		Condition cond = new Condition(field, value, QueryOpt.NOTEQ,clazz);
 		return cond;
 	}
 
@@ -186,11 +213,11 @@ public class Condition {
 	 * @param value
 	 *            字段值
 	 */
-	public static Condition gt(String field, Object value) {
+	public static Condition gt(String field, Object value,Class<?> clazz) {
 		if (value == null) {
 			throw new IllegalArgumentException("参数错误, condition value=null");
 		}
-		Condition cond = new Condition(field, value, QueryOpt.GT);
+		Condition cond = new Condition(field, value, QueryOpt.GT, clazz);
 		return cond;
 	}
 
@@ -202,11 +229,11 @@ public class Condition {
 	 * @param value
 	 *            字段值
 	 */
-	public static Condition gte(String field, Object value) {
+	public static Condition gte(String field, Object value,Class<?> clazz) {
 		if (value == null) {
 			throw new IllegalArgumentException("参数错误, condition value=null");
 		}
-		Condition cond = new Condition(field, value, QueryOpt.GTE);
+		Condition cond = new Condition(field, value, QueryOpt.GTE,clazz);
 		return cond;
 	}
 
@@ -218,11 +245,11 @@ public class Condition {
 	 * @param value
 	 *            字段值
 	 */
-	public static Condition lt(String field, Object value) {
+	public static Condition lt(String field, Object value,Class<?> clazz) {
 		if (value == null) {
 			throw new IllegalArgumentException("参数错误, condition value=null");
 		}
-		Condition cond = new Condition(field, value, QueryOpt.LT);
+		Condition cond = new Condition(field, value, QueryOpt.LT,clazz);
 		return cond;
 	}
 
@@ -234,11 +261,11 @@ public class Condition {
 	 * @param value
 	 *            字段值
 	 */
-	public static Condition lte(String field, Object value) {
+	public static Condition lte(String field, Object value,Class<?> clazz) {
 		if (value == null) {
 			throw new IllegalArgumentException("参数错误, condition value=null");
 		}
-		Condition cond = new Condition(field, value, QueryOpt.LTE);
+		Condition cond = new Condition(field, value, QueryOpt.LTE,clazz);
 		return cond;
 	}
 
@@ -252,67 +279,67 @@ public class Condition {
 	 * 
 	 * @return 当前条件对象
 	 */
-	public static Condition in(String field, Object... values) {
+	public static Condition in(String field,Class<?> clazz, Object... values) {
 		if (values == null) {
 			throw new IllegalArgumentException("参数错误, condition value=null");
 		}
-		Condition cond = new Condition(field, values, QueryOpt.IN);
+		Condition cond = new Condition(field, values, QueryOpt.IN, clazz);
 		return cond;
 	}
 
-	public static Condition in(String field, byte[] values) {
+	public static Condition in(String field, byte[] values,Class<?> clazz) {
 		if (values == null) {
 			throw new IllegalArgumentException("参数错误, condition value=null");
 		}
-		Condition cond = new Condition(field, values, QueryOpt.IN);
+		Condition cond = new Condition(field, values, QueryOpt.IN,clazz);
 		return cond;
 	}
 
-	public static Condition in(String field, int[] values) {
+	public static Condition in(String field, int[] values,Class<?> clazz) {
 		if (values == null) {
 			throw new IllegalArgumentException("参数错误, condition value=null");
 		}
-		Condition cond = new Condition(field, values, QueryOpt.IN);
+		Condition cond = new Condition(field, values, QueryOpt.IN, clazz);
 		return cond;
 	}
 
-	public static Condition in(String field, short[] values) {
+	public static Condition in(String field, short[] values,Class<?> clazz) {
 		if (values == null) {
 			throw new IllegalArgumentException("参数错误, condition value=null");
 		}
-		Condition cond = new Condition(field, values, QueryOpt.IN);
+		Condition cond = new Condition(field, values, QueryOpt.IN,clazz);
 		return cond;
 	}
 
-	public static Condition in(String field, long[] values) {
+	public static Condition in(String field, long[] values,Class<?> clazz) {
 		if (values == null) {
 			throw new IllegalArgumentException("参数错误, condition value=null");
 		}
-		Condition cond = new Condition(field, values, QueryOpt.IN);
+		Condition cond = new Condition(field, values, QueryOpt.IN, clazz);
 		return cond;
 	}
 
-	public static Condition in(String field, float[] values) {
+	public static Condition in(String field, float[] values,Class<?> clazz) {
 		if (values == null) {
 			throw new IllegalArgumentException("参数错误, condition value=null");
 		}
-		Condition cond = new Condition(field, values, QueryOpt.IN);
+		Condition cond = new Condition(field, values, QueryOpt.IN,clazz);
 		return cond;
 	}
 
-	public static Condition in(String field, double[] values) {
+	public static Condition in(String field, double[] values,Class<?> clazz) {
 		if (values == null) {
 			throw new IllegalArgumentException("参数错误, condition value=null");
 		}
-		Condition cond = new Condition(field, values, QueryOpt.IN);
+		Condition cond = new Condition(field, values, QueryOpt.IN,clazz);
 		return cond;
 	}
 
-	public static Condition in(String field, boolean[] values) {
+	public static Condition in(String field, boolean[] values,Class<?> clazz) {
 		if (values == null) {
 			throw new IllegalArgumentException("参数错误, condition value=null");
 		}
-		Condition cond = new Condition(field, values, QueryOpt.IN);
+		Condition cond = new Condition(field, values, QueryOpt.IN,clazz);
 		return cond;
 	}
 
@@ -324,11 +351,11 @@ public class Condition {
 	 * @param value
 	 *            字段值
 	 */
-	public static Condition like(String field, String value) {
+	public static Condition like(String field, String value,Class<?> clazz) {
 		if (value == null) {
 			throw new IllegalArgumentException("参数错误, condition value=null");
 		}
-		Condition cond = new Condition(field, value, QueryOpt.LIKE);
+		Condition cond = new Condition(field, value, QueryOpt.LIKE,clazz);
 		return cond;
 	}
 

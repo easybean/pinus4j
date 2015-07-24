@@ -51,7 +51,15 @@ public interface IQuery {
 
 	/**
 	 * 添加取值字段.
-	 * 
+	 *
+	 * @param field
+	 *            获取值的字段
+	 * @return
+	 */
+	public IQuery setFields(Class<?> clazz,String... field);
+	/**
+	 * 添加取值字段.
+	 *
 	 * @param field
 	 *            获取值的字段
 	 * @return
@@ -88,7 +96,7 @@ public interface IQuery {
 	 * @param order
 	 *            升序降序
 	 */
-	public IQuery orderBy(String field, Order order);
+	public IQuery orderBy(String field, Order order,Class<?> clazz);
 
 	/**
 	 * 分页参数.

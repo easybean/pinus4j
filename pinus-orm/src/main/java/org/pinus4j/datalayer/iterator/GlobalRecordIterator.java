@@ -39,7 +39,7 @@ public class GlobalRecordIterator<E> extends AbstractRecordIterator<E> {
 		long maxId = 0;
 
 		IQuery query = new QueryImpl();
-		query.limit(1).orderBy(pkName, Order.DESC);
+		query.limit(1).orderBy(pkName, Order.DESC, clazz);
 		List<E> one;
 		try {
 			one = selectGlobalByQuery(this.dbResource, query, clazz);
@@ -70,7 +70,7 @@ public class GlobalRecordIterator<E> extends AbstractRecordIterator<E> {
 		if (this.recordQ.isEmpty()) {
 			IQuery query = this.query.clone();
 			long high = this.latestId + step;
-			query.add(Condition.gte(pkName, latestId)).add(Condition.lt(pkName, high));
+			query.add(Condition.gte(pkName, latestId,clazz)).add(Condition.lt(pkName, high,clazz));
 			try {
 				List<E> recrods = selectGlobalByQuery(this.dbResource, query, clazz);
 				this.latestId = high;
@@ -78,7 +78,7 @@ public class GlobalRecordIterator<E> extends AbstractRecordIterator<E> {
 				while (recrods.isEmpty() && this.latestId < maxId) {
 					query = this.query.clone();
 					high = this.latestId + step;
-					query.add(Condition.gte(pkName, this.latestId)).add(Condition.lt(pkName, high));
+					query.add(Condition.gte(pkName, this.latestId,clazz)).add(Condition.lt(pkName, high,clazz));
 					recrods = selectGlobalByQuery(this.dbResource, query, clazz);
 					this.latestId = high;
 				}

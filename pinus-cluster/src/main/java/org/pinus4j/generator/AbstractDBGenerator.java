@@ -172,7 +172,7 @@ public abstract class AbstractDBGenerator implements IDBGenerator {
         PrimaryKey pk = null;
         UpdateTime updateTime = null;
         DateTime datetime = null;
-        boolean isSetPrimaryKey = false;
+//        boolean isSetPrimaryKey = false;
         for (Field f : clazz.getDeclaredFields()) {
             column = new DBTableColumn();
 
@@ -275,7 +275,7 @@ public abstract class AbstractDBGenerator implements IDBGenerator {
             //
             pk = f.getAnnotation(PrimaryKey.class);
             if (pk != null) {
-                if (!isSetPrimaryKey) {
+//                if (!isSetPrimaryKey) {
 
                     String fieldName = f.getName();
                     if (StringUtils.isNotBlank(pk.name())) {
@@ -293,11 +293,11 @@ public abstract class AbstractDBGenerator implements IDBGenerator {
                     int length = _getDbLength(dbType);
                     column.setLength(length);
                     column.setDefaultValue(null);
-                    isSetPrimaryKey = true;
+//                    isSetPrimaryKey = true;
                     column.setComment(pk.comment());
-                } else {
-                    throw new IllegalArgumentException(clazz + "被转化的Java对象不能有多个@PrimaryKey注解");
-                }
+//                } else {
+//                    throw new IllegalArgumentException(clazz + "被转化的Java对象不能有多个@PrimaryKey注解");
+//                }
                 table.addColumn(column);
             }
         }

@@ -324,6 +324,16 @@ public class SQLBuilder {
                     value = new Character('\u0000');
             } else if (f.getType() == Short.TYPE || f.getType() == Short.class) {
                 value = rs.getShort(i);
+            } else if (f.getType() == Long.TYPE || f.getType() == Long.class) {
+                value = rs.getLong(i);
+            } else if (f.getType() == Integer.TYPE || f.getType() == Integer.class) {
+                if(value instanceof Boolean){
+                    if((Boolean)value) {
+                        value = new Integer(1);
+                    }else{
+                        value = new Integer(0);
+                    }
+                }
             }
         }
 
@@ -336,7 +346,6 @@ public class SQLBuilder {
      * @param clazz 数据对象
      * @param tableIndex 表下标
      * @param pks 主键
-     * @param query 保证in顺序
      * @return sql语句
      */
     public static String buildSelectByPks(Class<?> clazz, int tableIndex, Number[] pks) {
@@ -476,7 +485,7 @@ public class SQLBuilder {
      * @param entities 数据对象
      * @param tableIndex 分表下标
      * @return SQL语句
-     * @throws 操作失败
+     * @throws SQLException 操作失败
      */
     public static Statement getInsert(Connection conn, List<? extends Object> entities, int tableIndex)
             throws SQLException {
