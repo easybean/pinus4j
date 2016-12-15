@@ -25,26 +25,20 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-import javax.transaction.TransactionManager;
-
 import org.pinus4j.api.SQL;
 import org.pinus4j.api.query.IQuery;
-import org.pinus4j.cache.IPrimaryCache;
-import org.pinus4j.cache.ISecondCache;
-import org.pinus4j.cluster.IDBCluster;
+import org.pinus4j.api.query.impl.DefaultQueryImpl.OrderBy;
 import org.pinus4j.cluster.resources.IDBResource;
 import org.pinus4j.cluster.resources.ShardingDBResource;
 import org.pinus4j.constant.Const;
+import org.pinus4j.datalayer.AbstractDataLayer;
 import org.pinus4j.datalayer.SQLBuilder;
 import org.pinus4j.datalayer.SlowQueryLogger;
 import org.pinus4j.datalayer.query.IDataQuery;
-import org.pinus4j.entity.DefaultEntityMetaManager;
-import org.pinus4j.entity.IEntityMetaManager;
 import org.pinus4j.entity.meta.EntityPK;
 import org.pinus4j.entity.meta.PKName;
 import org.pinus4j.entity.meta.PKValue;
 import org.pinus4j.utils.JdbcUtil;
-import org.pinus4j.utils.ReflectUtil;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -54,44 +48,7 @@ import com.google.common.collect.Maps;
  * 
  * @author duanbn
  */
-public abstract class AbstractJdbcQuery implements IDataQuery {
-
-    /**
-     * 数据库集群引用.
-     */
-    protected IDBCluster         dbCluster;
-
-    /**
-     * 一级缓存.
-     */
-    protected IPrimaryCache      primaryCache;
-
-    /**
-     * 二级缓存.
-     */
-    protected ISecondCache       secondCache;
-
-    protected TransactionManager txManager;
-
-    protected IEntityMetaManager entityMetaManager = DefaultEntityMetaManager.getInstance();
-
-    /**
-     * 判断一级缓存是否可用
-     * 
-     * @return true:启用cache, false:不启用
-     */
-    protected boolean isCacheAvailable(Class<?> clazz, boolean useCache) {
-        return primaryCache != null && ReflectUtil.isCache(clazz) && useCache;
-    }
-
-    /**
-     * 判断二级缓存是否可用
-     * 
-     * @return true:启用cache, false:不启用
-     */
-    protected boolean isSecondCacheAvailable(Class<?> clazz, boolean useCache) {
-        return secondCache != null && ReflectUtil.isCache(clazz) && useCache;
-    }
+public abstract class AbstractJdbcQuery extends AbstractDataLayer implements IDataQuery {
 
     // //////////////////////////////////////////////////////////////////////////////////////
     // count相关
@@ -144,7 +101,7 @@ public abstract class AbstractJdbcQuery implements IDataQuery {
      */
     protected Number selectCountWithCache(IDBResource dbResource, Class<?> clazz, boolean useCache) throws SQLException {
         String clusterName = dbResource.getClusterName();
-        String tableName = ReflectUtil.getTableName(clazz);
+        String tableName = entityMetaManager.getTableName(clazz);
 
         // 操作缓存
         if (isCacheAvailable(clazz, useCache)) {
@@ -172,7 +129,8 @@ public abstract class AbstractJdbcQuery implements IDataQuery {
         return count;
     }
 
-    protected Number selectCountByQuery(IQuery query, IDBResource dbResource, Class<?> clazz) throws SQLException {
+    protected <T> Number selectCountByQuery(IQuery<T> query, IDBResource dbResource, Class<T> clazz)
+            throws SQLException {
         long count = -1;
 
         PreparedStatement ps = null;
@@ -180,14 +138,15 @@ public abstract class AbstractJdbcQuery implements IDataQuery {
         try {
             Connection conn = dbResource.getConnection();
 
-            String sql = null;
+            SQL sql = null;
             if (dbResource.isGlobal())
                 sql = SQLBuilder.buildSelectCountByQuery(clazz, -1, query);
             else
                 sql = SQLBuilder.buildSelectCountByQuery(clazz, ((ShardingDBResource) dbResource).getTableIndex(),
                         query);
 
-            ps = conn.prepareStatement(sql);
+            ps = conn.prepareStatement(sql.getSql());
+            fillParam(ps, sql);
 
             long begin = System.currentTimeMillis();
             rs = ps.executeQuery();
@@ -208,90 +167,25 @@ public abstract class AbstractJdbcQuery implements IDataQuery {
     }
 
     // //////////////////////////////////////////////////////////////////////////////////////
-    // findByPk相关
-    // //////////////////////////////////////////////////////////////////////////////////////
-    private <T> T _selectByPk(IDBResource dbResource, EntityPK pk, Class<T> clazz) throws SQLException {
-        PreparedStatement ps = null;
-        ResultSet rs = null;
-        try {
-            Connection conn = dbResource.getConnection();
-
-            String sql = null;
-            if (dbResource.isGlobal())
-                sql = SQLBuilder.buildSelectByPk(pk, clazz, -1);
-            else
-                sql = SQLBuilder.buildSelectByPk(pk, clazz, ((ShardingDBResource) dbResource).getTableIndex());
-
-            ps = conn.prepareStatement(sql);
-
-            long begin = System.currentTimeMillis();
-            rs = ps.executeQuery();
-            long constTime = System.currentTimeMillis() - begin;
-
-            if (constTime > Const.SLOWQUERY_PK) {
-                SlowQueryLogger.write(conn, sql, constTime);
-            }
-
-            List<T> result = SQLBuilder.buildResultObject(clazz, rs);
-            if (!result.isEmpty()) {
-                return result.get(0);
-            }
-        } finally {
-            JdbcUtil.close(ps, rs);
-        }
-
-        return null;
-    }
-
-    protected <T> T selectByPkWithCache(IDBResource dbResource, EntityPK pk, Class<T> clazz, boolean useCache)
-            throws SQLException {
-        String tableName = ReflectUtil.getTableName(clazz);
-        String clusterName = dbResource.getClusterName();
-
-        T data = null;
-        if (isCacheAvailable(clazz, useCache)) {
-
-            if (dbResource.isGlobal())
-                data = primaryCache.getGlobal(clusterName, tableName, pk);
-            else
-                data = primaryCache.get((ShardingDBResource) dbResource, pk);
-
-            if (data == null) {
-
-                data = _selectByPk(dbResource, pk, clazz);
-
-                if (data != null) {
-                    if (dbResource.isGlobal())
-                        primaryCache.putGlobal(clusterName, tableName, pk, data);
-                    else
-                        primaryCache.put((ShardingDBResource) dbResource, pk, data);
-                }
-            }
-        } else {
-            data = _selectByPk(dbResource, pk, clazz);
-        }
-
-        return data;
-    }
-
-    // //////////////////////////////////////////////////////////////////////////////////////
     // findByPks相关
     // //////////////////////////////////////////////////////////////////////////////////////
-    private <T> List<T> _selectByPks(IDBResource dbResource, Class<T> clazz, EntityPK[] pks) throws SQLException {
-        List<T> result = new ArrayList<T>(1);
+    private <T> Map<EntityPK, T> _selectByPks(IDBResource dbResource, Class<T> clazz, EntityPK[] pks,
+                                              List<OrderBy> order) throws SQLException {
+        Map<EntityPK, T> result = Maps.newLinkedHashMap();
 
         PreparedStatement ps = null;
         ResultSet rs = null;
         try {
             Connection conn = dbResource.getConnection();
 
-            String sql = null;
+            SQL sql = null;
             if (dbResource.isGlobal())
-                sql = SQLBuilder.buildSelectByPks(pks, clazz, -1);
+                sql = SQLBuilder.buildSelectByPks(pks, order, clazz, -1);
             else
-                sql = SQLBuilder.buildSelectByPks(pks, clazz, ((ShardingDBResource) dbResource).getTableIndex());
+                sql = SQLBuilder.buildSelectByPks(pks, order, clazz, ((ShardingDBResource) dbResource).getTableIndex());
 
-            ps = conn.prepareStatement(sql);
+            ps = conn.prepareStatement(sql.getSql());
+            fillParam(ps, sql);
 
             long begin = System.currentTimeMillis();
             rs = ps.executeQuery();
@@ -301,7 +195,7 @@ public abstract class AbstractJdbcQuery implements IDataQuery {
                 SlowQueryLogger.write(conn, sql, constTime);
             }
 
-            result = SQLBuilder.buildResultObject(clazz, rs);
+            result = SQLBuilder.createResultObjectAsMap(clazz, rs);
         } finally {
             JdbcUtil.close(ps, rs);
         }
@@ -309,67 +203,34 @@ public abstract class AbstractJdbcQuery implements IDataQuery {
         return result;
     }
 
-    private <T> Map<EntityPK, T> _selectByPksWithMap(IDBResource dbResource, Class<T> clazz, EntityPK[] pks)
-            throws SQLException {
-        Map<EntityPK, T> result = Maps.newHashMap();
-
-        PreparedStatement ps = null;
-        ResultSet rs = null;
-        try {
-            Connection conn = dbResource.getConnection();
-
-            String sql = null;
-            if (dbResource.isGlobal())
-                sql = SQLBuilder.buildSelectByPks(pks, clazz, -1);
-            else
-                sql = SQLBuilder.buildSelectByPks(pks, clazz, ((ShardingDBResource) dbResource).getTableIndex());
-
-            ps = conn.prepareStatement(sql);
-
-            long begin = System.currentTimeMillis();
-            rs = ps.executeQuery();
-            long constTime = System.currentTimeMillis() - begin;
-
-            if (constTime > Const.SLOWQUERY_PKS) {
-                SlowQueryLogger.write(conn, sql, constTime);
-            }
-
-            result = SQLBuilder.buildResultObjectAsMap(clazz, rs);
-        } finally {
-            JdbcUtil.close(ps, rs);
-        }
-
-        return result;
-    }
-
-    protected <T> List<T> selectByPksWithCache(IDBResource dbResource, Class<T> clazz, EntityPK[] pks, boolean useCache)
-            throws SQLException {
-        List<T> result = new ArrayList<T>();
+    protected <T> Map<EntityPK, T> selectByPksWithCache(IDBResource dbResource, Class<T> clazz, EntityPK[] pks,
+                                                        List<OrderBy> order, boolean useCache) throws SQLException {
+        Map<EntityPK, T> result = Maps.newLinkedHashMap();
 
         if (pks == null || pks.length == 0) {
             return result;
         }
 
         if (!isCacheAvailable(clazz, useCache)) {
-            return _selectByPks(dbResource, clazz, pks);
+            return _selectByPks(dbResource, clazz, pks, order);
         }
 
-        String tableName = ReflectUtil.getTableName(clazz);
+        String tableName = entityMetaManager.getTableName(clazz);
         String clusterName = dbResource.getClusterName();
 
-        List<T> hitResult = null;
+        Map<EntityPK, T> hitResult = null;
         if (dbResource.isGlobal())
             hitResult = primaryCache.getGlobal(clusterName, tableName, pks);
         else
             hitResult = primaryCache.get((ShardingDBResource) dbResource, pks);
 
         if (hitResult == null || hitResult.isEmpty()) {
-            result = _selectByPks(dbResource, clazz, pks);
+            result = _selectByPks(dbResource, clazz, pks, order);
 
             if (dbResource.isGlobal())
                 primaryCache.putGlobal(clusterName, tableName, result);
             else
-                primaryCache.put((ShardingDBResource) dbResource, pks, result);
+                primaryCache.put((ShardingDBResource) dbResource, result);
 
             return result;
         }
@@ -380,17 +241,16 @@ public abstract class AbstractJdbcQuery implements IDataQuery {
 
         try {
             // 计算没有命中缓存的主键
-            Map<EntityPK, T> hitMap = _getPkValues(hitResult);
             List<EntityPK> noHitPkList = Lists.newArrayList();
             for (EntityPK pk : pks) {
-                if (hitMap.get(pk) == null) {
+                if (hitResult.get(pk) == null) {
                     noHitPkList.add(pk);
                 }
             }
             EntityPK[] noHitPks = noHitPkList.toArray(new EntityPK[noHitPkList.size()]);
 
             // 从数据库中查询没有命中缓存的数据
-            Map<EntityPK, T> noHitMap = _selectByPksWithMap(dbResource, clazz, noHitPks);
+            Map<EntityPK, T> noHitMap = _selectByPks(dbResource, clazz, noHitPks, order);
             if (!noHitMap.isEmpty()) {
                 if (dbResource.isGlobal())
                     primaryCache.putGlobal(clusterName, tableName, noHitMap);
@@ -400,14 +260,14 @@ public abstract class AbstractJdbcQuery implements IDataQuery {
 
             // 为了保证pks的顺序
             for (EntityPK pk : pks) {
-                if (hitMap.get(pk) != null) {
-                    result.add(hitMap.get(pk));
+                if (hitResult.get(pk) != null) {
+                    result.put(pk, hitResult.get(pk));
                 } else {
-                    result.add(noHitMap.get(pk));
+                    result.put(pk, noHitMap.get(pk));
                 }
             }
         } catch (Exception e) {
-            result = _selectByPks(dbResource, clazz, pks);
+            result = _selectByPks(dbResource, clazz, pks, order);
         }
 
         return result;
@@ -435,7 +295,7 @@ public abstract class AbstractJdbcQuery implements IDataQuery {
             if (constTime > Const.SLOWQUERY_SQL) {
                 SlowQueryLogger.write(conn, sql, constTime);
             }
-            result = (List<Map<String, Object>>) SQLBuilder.buildResultObject(rs);
+            result = (List<Map<String, Object>>) SQLBuilder.createResultObject(rs);
         } finally {
             JdbcUtil.close(ps, rs);
         }
@@ -446,21 +306,22 @@ public abstract class AbstractJdbcQuery implements IDataQuery {
     // //////////////////////////////////////////////////////////////////////////////////////
     // findByQuery相关
     // //////////////////////////////////////////////////////////////////////////////////////
-    protected <T> List<T> selectByQuery(IDBResource dbResource, IQuery query, Class<T> clazz) throws SQLException {
-        List<T> result = new ArrayList<T>();
+    protected <T> List<T> selectByQuery(IDBResource dbResource, IQuery<T> query, Class<T> clazz) throws SQLException {
+        List<T> result = null;
 
         PreparedStatement ps = null;
         ResultSet rs = null;
         try {
             Connection conn = dbResource.getConnection();
 
-            String sql = null;
+            SQL sql = null;
             if (dbResource.isGlobal())
                 sql = SQLBuilder.buildSelectByQuery(clazz, -1, query);
             else
                 sql = SQLBuilder.buildSelectByQuery(clazz, ((ShardingDBResource) dbResource).getTableIndex(), query);
 
-            ps = conn.prepareStatement(sql);
+            ps = conn.prepareStatement(sql.getSql());
+            fillParam(ps, sql);
 
             long begin = System.currentTimeMillis();
             rs = ps.executeQuery();
@@ -470,7 +331,7 @@ public abstract class AbstractJdbcQuery implements IDataQuery {
                 SlowQueryLogger.write(conn, sql, constTime);
             }
 
-            result = (List<T>) SQLBuilder.buildResultObject(clazz, rs);
+            result = (List<T>) SQLBuilder.createResultObject(clazz, rs);
         } finally {
             JdbcUtil.close(ps, rs);
         }
@@ -481,7 +342,8 @@ public abstract class AbstractJdbcQuery implements IDataQuery {
     // //////////////////////////////////////////////////////////////////////////////////////
     // getPk相关
     // //////////////////////////////////////////////////////////////////////////////////////
-    protected <T> EntityPK[] selectPksByQuery(IDBResource dbResource, IQuery query, Class<T> clazz) throws SQLException {
+    protected <T> EntityPK[] selectPksByQuery(IDBResource dbResource, IQuery<T> query, Class<T> clazz)
+            throws SQLException {
         List<EntityPK> result = Lists.newArrayList();
 
         PreparedStatement ps = null;
@@ -489,13 +351,14 @@ public abstract class AbstractJdbcQuery implements IDataQuery {
         try {
             Connection conn = dbResource.getConnection();
 
-            String sql = null;
+            SQL sql = null;
             if (dbResource.isGlobal())
                 sql = SQLBuilder.buildSelectPkByQuery(clazz, -1, query);
             else
                 sql = SQLBuilder.buildSelectPkByQuery(clazz, ((ShardingDBResource) dbResource).getTableIndex(), query);
 
-            ps = conn.prepareStatement(sql);
+            ps = conn.prepareStatement(sql.getSql());
+            fillParam(ps, sql);
 
             long begin = System.currentTimeMillis();
             rs = ps.executeQuery();
@@ -527,62 +390,4 @@ public abstract class AbstractJdbcQuery implements IDataQuery {
         return result.toArray(new EntityPK[result.size()]);
     }
 
-    /**
-     * 获取列表的主键.
-     * 
-     * @param entities
-     * @return pk值
-     * @throws Exception 获取pk值失败
-     */
-    private <T> Map<EntityPK, T> _getPkValues(List<T> entities) {
-        Map<EntityPK, T> map = Maps.newHashMap();
-
-        EntityPK entityPk = null;
-        for (T entity : entities) {
-            entityPk = ReflectUtil.getPkValue(entity);
-            map.put(entityPk, entity);
-        }
-
-        return map;
-    }
-
-    @Override
-    public IDBCluster getDBCluster() {
-        return dbCluster;
-    }
-
-    @Override
-    public void setDBCluster(IDBCluster dbCluster) {
-        this.dbCluster = dbCluster;
-    }
-
-    @Override
-    public void setPrimaryCache(IPrimaryCache primaryCache) {
-        this.primaryCache = primaryCache;
-    }
-
-    @Override
-    public IPrimaryCache getPrimaryCache() {
-        return this.primaryCache;
-    }
-
-    @Override
-    public void setSecondCache(ISecondCache secondCache) {
-        this.secondCache = secondCache;
-    }
-
-    @Override
-    public ISecondCache getSecondCache() {
-        return this.secondCache;
-    }
-
-    @Override
-    public void setTransactionManager(TransactionManager txManager) {
-        this.txManager = txManager;
-    }
-
-    @Override
-    public TransactionManager getTransactionManager() {
-        return this.txManager;
-    }
 }

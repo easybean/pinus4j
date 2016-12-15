@@ -1,3 +1,19 @@
+/**
+ * Copyright 2014 Duan Bingnan
+ * 
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ * 
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *   
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package org.pinus4j.entity;
 
 import java.io.File;
@@ -7,6 +23,7 @@ import java.net.JarURLConnection;
 import java.net.URL;
 import java.net.URLDecoder;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Date;
 import java.util.Enumeration;
 import java.util.HashMap;
@@ -15,7 +32,10 @@ import java.util.Map;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 
+import org.pinus4j.cluster.beans.IShardingKey;
+import org.pinus4j.cluster.beans.ShardingKey;
 import org.pinus4j.constant.Const;
+import org.pinus4j.entity.annotations.CacheVersion;
 import org.pinus4j.entity.annotations.DateTime;
 import org.pinus4j.entity.annotations.Index;
 import org.pinus4j.entity.annotations.Indexes;
@@ -27,8 +47,15 @@ import org.pinus4j.entity.meta.DBTableColumn;
 import org.pinus4j.entity.meta.DBTableIndex;
 import org.pinus4j.entity.meta.DBTablePK;
 import org.pinus4j.entity.meta.DataTypeBind;
-import org.pinus4j.utils.ReflectUtil;
-import org.pinus4j.utils.StringUtils;
+import org.pinus4j.entity.meta.EntityPK;
+import org.pinus4j.entity.meta.PKName;
+import org.pinus4j.entity.meta.PKValue;
+import org.pinus4j.exceptions.DBOperationException;
+import org.pinus4j.utils.BeansUtil;
+import org.pinus4j.utils.StringUtil;
+
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 /**
  * 管理加载的Entity信息.
@@ -40,11 +67,11 @@ public class DefaultEntityMetaManager implements IEntityMetaManager {
     /**
      * 当前线程的类装载器. 用于扫描可以生成数据表的数据对象.
      */
-    private final ClassLoader                   classloader = Thread.currentThread().getContextClassLoader();
+    private final ClassLoader                   classloader  = Thread.currentThread().getContextClassLoader();
 
-    private final static Map<Class<?>, DBTable> tableMap    = new HashMap<Class<?>, DBTable>();
-
-    private final static List<DBTable>          tables      = new ArrayList<DBTable>();
+    private final static Map<Class<?>, DBTable> tableMap     = new HashMap<Class<?>, DBTable>();
+    private final static Map<String, DBTable>   tableNameMap = Maps.newHashMap();
+    private final static List<DBTable>          tables       = new ArrayList<DBTable>();
 
     private volatile static IEntityMetaManager  instance;
 
@@ -68,16 +95,146 @@ public class DefaultEntityMetaManager implements IEntityMetaManager {
     }
 
     @Override
+    public PKValue getNotUnionPkValue(Object obj) {
+        PKName pkName = getNotUnionPkName(obj.getClass());
+
+        Object pkValue = BeansUtil.getProperty(obj, pkName.getValue());
+
+        return PKValue.valueOf(pkValue);
+    }
+
+    @Override
+    public EntityPK getEntityPK(Object obj) {
+        PKName[] pkNames = getPkName(obj.getClass());
+        List<PKValue> pkValues = Lists.newArrayList();
+        Object pkValue = null;
+        for (PKName pkName : pkNames) {
+            pkValue = BeansUtil.getProperty(obj, pkName.getValue());
+            pkValues.add(PKValue.valueOf(pkValue));
+        }
+        return EntityPK.valueOf(pkNames, pkValues.toArray(new PKValue[pkValues.size()]));
+    }
+
+    @Override
+    public PKName getNotUnionPkName(Class<?> clazz) {
+        DBTable dbTable = this.getTableMeta(clazz);
+        if (dbTable.isUnionPrimaryKey()) {
+            throw new IllegalStateException("不支持联合主键, class=" + clazz);
+        }
+
+        List<DBTablePK> primaryKeys = dbTable.getPrimaryKeys();
+
+        if (primaryKeys.isEmpty()) {
+            throw new IllegalStateException("找不到主键 class=" + clazz);
+        }
+
+        return primaryKeys.get(0).getPKName();
+    }
+
+    @Override
+    public PKName[] getPkName(Class<?> clazz) {
+        DBTable dbTable = this.getTableMeta(clazz);
+
+        List<DBTablePK> primaryKeys = dbTable.getPrimaryKeys();
+
+        if (primaryKeys.isEmpty()) {
+            throw new IllegalStateException("找不到主键 class=" + clazz);
+        }
+
+        List<PKName> ePKList = new ArrayList<PKName>(primaryKeys.size());
+        for (DBTablePK primaryKey : primaryKeys) {
+            ePKList.add(primaryKey.getPKName());
+        }
+
+        return ePKList.toArray(new PKName[ePKList.size()]);
+    }
+
+    @Override
+    public boolean isShardingEntity(Class<?> clazz) {
+        DBTable dbTable = this.getTableMeta(clazz);
+
+        return dbTable.isSharding();
+    }
+
+    @Override
+    public IShardingKey<?> getShardingKey(Object entity) {
+        Class<?> clazz = entity.getClass();
+        DBTable dbTable = this.getTableMeta(clazz);
+
+        String clusterName = dbTable.getCluster();
+        String shardingField = dbTable.getShardingBy();
+        Object shardingValue = null;
+        try {
+            shardingValue = BeansUtil.getProperty(entity, shardingField);
+        } catch (Exception e) {
+            throw new DBOperationException("获取sharding value失败, clazz=" + clazz + " field=" + shardingField);
+        }
+        if (shardingValue == null) {
+            throw new IllegalStateException("shardingValue is null, clazz=" + clazz + " field=" + shardingField);
+        }
+
+        return new ShardingKey<Object>(clusterName, shardingValue);
+    }
+
+    @Override
+    public String getClusterName(Class<?> clazz) {
+        DBTable dbTable = this.getTableMeta(clazz);
+
+        return dbTable.getCluster();
+    }
+
+    @Override
+    public int getTableNum(Class<?> clazz) {
+        DBTable dbTable = this.getTableMeta(clazz);
+
+        return dbTable.getShardingNum();
+    }
+
+    @Override
+    public String getTableName(Object entity, int tableIndex) {
+        Class<?> entityClass = entity.getClass();
+        return getTableName(entityClass, tableIndex);
+    }
+
+    @Override
+    public String getTableName(Class<?> clazz, int tableIndex) {
+        if (tableIndex == -1) {
+            return getTableName(clazz);
+        } else {
+            return getTableName(clazz) + tableIndex;
+        }
+    }
+
+    @Override
+    public String getTableName(Class<?> clazz) {
+        DBTable dbTable = this.getTableMeta(clazz);
+
+        return dbTable.getName();
+    }
+
+    @Override
+    public boolean isCache(Class<?> clazz) {
+        DBTable dbTable = this.getTableMeta(clazz);
+
+        return dbTable.isCache();
+    }
+
+    @Override
     public boolean isUnionKey(Class<?> clazz) {
         DBTable dbTable = getTableMeta(clazz);
         return dbTable.isUnionPrimaryKey();
     }
 
     @Override
-    public DBTablePK getAutoIncrementField(Class<?> clazz) {
+    public DBTablePK getNotUnionPrimaryKey(Class<?> clazz) {
         DBTable dbTable = getTableMeta(clazz);
 
-        return dbTable.getAutoIncrementField();
+        List<DBTablePK> dbTablePK = dbTable.getPrimaryKeys();
+        if (dbTablePK.size() > 1) {
+            throw new IllegalStateException("不支持联合主键, class=" + clazz);
+        }
+
+        return dbTablePK.get(0);
     }
 
     @Override
@@ -130,6 +287,7 @@ public class DefaultEntityMetaManager implements IEntityMetaManager {
                                 dbTable = converTo(tableClass);
                                 tables.add(dbTable);
                                 tableMap.put(tableClass, dbTable);
+                                tableNameMap.put(dbTable.getName(), dbTable);
                             }
                         }
                     }
@@ -164,6 +322,7 @@ public class DefaultEntityMetaManager implements IEntityMetaManager {
                     dbTable = converTo(tableClass);
                     tables.add(dbTable);
                     tableMap.put(tableClass, dbTable);
+                    tableNameMap.put(dbTable.getName(), dbTable);
                 }
             }
         }
@@ -190,11 +349,21 @@ public class DefaultEntityMetaManager implements IEntityMetaManager {
             throw new IllegalArgumentException(clazz + "无法转化为数据库，请使用@Table注解");
         }
         // 获取表名
-        String tableName = StringUtils.isBlank(annoTable.name()) ? clazz.getSimpleName() : annoTable.name();
+        String tableName = StringUtil.isBlank(annoTable.name()) ? clazz.getSimpleName() : annoTable.name();
+
         DBTable table = new DBTable(tableName.toLowerCase());
+
+        // 解析cache version
+        String cacheVersion = Const.DEFAULT_CACHE_VERSION;
+        CacheVersion annoCacheVersion = clazz.getAnnotation(CacheVersion.class);
+        if (annoCacheVersion != null && StringUtil.isNotBlank(annoCacheVersion.value())) {
+            cacheVersion = annoCacheVersion.value();
+        }
+        table.setCacheVersion(cacheVersion);
+
         // 获取集群名
         String cluster = annoTable.cluster();
-        if (StringUtils.isBlank(cluster)) {
+        if (StringUtil.isBlank(cluster)) {
             throw new IllegalArgumentException(clazz + " @Table的cluster不能为空");
         }
         table.setCluster(cluster);
@@ -233,10 +402,10 @@ public class DefaultEntityMetaManager implements IEntityMetaManager {
                 }
 
                 String fieldName = f.getName();
-                if (StringUtils.isNotBlank(datetime.name())) {
+                if (StringUtil.isNotBlank(datetime.name())) {
                     fieldName = datetime.name();
                 }
-                ReflectUtil.putAliasField(clazz, fieldName, f);
+                BeansUtil.putAliasField(clazz, fieldName, f);
 
                 column = new DBTableColumn();
                 column.setField(fieldName);
@@ -260,10 +429,10 @@ public class DefaultEntityMetaManager implements IEntityMetaManager {
                 }
 
                 String fieldName = f.getName();
-                if (StringUtils.isNotBlank(updateTime.name())) {
+                if (StringUtil.isNotBlank(updateTime.name())) {
                     fieldName = updateTime.name();
                 }
-                ReflectUtil._aliasFieldCache.put(clazz.getName() + fieldName, f);
+                BeansUtil._aliasFieldCache.put(clazz.getName() + fieldName, f);
 
                 column = new DBTableColumn();
                 column.setField(fieldName);
@@ -284,12 +453,15 @@ public class DefaultEntityMetaManager implements IEntityMetaManager {
                 if (f.getType() == java.sql.Timestamp.class) {
                     throw new IllegalArgumentException(clazz + " " + f.getName() + "应该是时间戳类型，必须使用@UpdateTime标注");
                 }
+                if (f.getType() == java.util.Date.class) {
+                    throw new IllegalArgumentException(clazz + " " + f.getName() + "应该是日期类型，必须使用@DateTime标注");
+                }
 
                 String fieldName = f.getName();
-                if (StringUtils.isNotBlank(dbField.name())) {
+                if (StringUtil.isNotBlank(dbField.name())) {
                     fieldName = dbField.name();
                 }
-                ReflectUtil._aliasFieldCache.put(clazz.getName() + fieldName, f);
+                BeansUtil._aliasFieldCache.put(clazz.getName() + fieldName, f);
 
                 boolean isCanNull = dbField.isCanNull();
                 int length = _getLength(f, dbField.length());
@@ -328,10 +500,10 @@ public class DefaultEntityMetaManager implements IEntityMetaManager {
             pk = f.getAnnotation(PrimaryKey.class);
             if (pk != null) {
                 String fieldName = f.getName();
-                if (StringUtils.isNotBlank(pk.name())) {
+                if (StringUtil.isNotBlank(pk.name())) {
                     fieldName = pk.name();
                 }
-                ReflectUtil._aliasFieldCache.put(clazz.getName() + fieldName, f);
+                BeansUtil._aliasFieldCache.put(clazz.getName() + fieldName, f);
 
                 primaryKey = new DBTablePK();
                 primaryKey.setField(fieldName);
@@ -373,7 +545,8 @@ public class DefaultEntityMetaManager implements IEntityMetaManager {
         DBTableIndex dbIndex = null;
         for (Index index : indexes) {
             dbIndex = new DBTableIndex();
-            dbIndex.setField(StringUtils.removeBlank(index.field()));
+            List<String> indexFields = Arrays.asList(StringUtil.removeBlank(index.field()).split(","));
+            dbIndex.setFields(indexFields);
             dbIndex.setUnique(index.isUnique());
             table.addIndex(dbIndex);
         }
@@ -415,6 +588,17 @@ public class DefaultEntityMetaManager implements IEntityMetaManager {
 
         if (dbTable == null) {
             throw new IllegalStateException("找不到实体的元信息 class=" + clazz);
+        }
+
+        return dbTable;
+    }
+
+    @Override
+    public DBTable getTableMeta(String tableName) {
+        DBTable dbTable = tableNameMap.get(tableName);
+
+        if (dbTable == null) {
+            throw new IllegalStateException("找不到实体的元信息 table name=" + tableName);
         }
 
         return dbTable;

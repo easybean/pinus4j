@@ -25,16 +25,15 @@ import javax.transaction.xa.XAResource;
 
 import org.pinus4j.api.SQL;
 import org.pinus4j.api.query.IQuery;
-import org.pinus4j.api.query.QueryImpl;
+import org.pinus4j.api.query.impl.DefaultQueryImpl;
+import org.pinus4j.api.query.impl.DefaultQueryImpl.OrderBy;
 import org.pinus4j.cluster.enums.EnumDBMasterSlave;
 import org.pinus4j.cluster.resources.IDBResource;
 import org.pinus4j.datalayer.query.IGlobalQuery;
 import org.pinus4j.entity.meta.EntityPK;
-import org.pinus4j.entity.meta.PKName;
-import org.pinus4j.entity.meta.PKValue;
 import org.pinus4j.exceptions.DBClusterException;
 import org.pinus4j.exceptions.DBOperationException;
-import org.pinus4j.utils.ReflectUtil;
+import org.pinus4j.utils.BeansUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -51,30 +50,22 @@ public class GlobalJdbcQueryImpl extends AbstractJdbcQuery implements IGlobalQue
     public static final Logger LOG = LoggerFactory.getLogger(GlobalJdbcQueryImpl.class);
 
     @Override
-    public Number getCount(Class<?> clazz) {
-        return getCount(clazz, true);
-    }
-
-    @Override
-    public Number getCount(Class<?> clazz, boolean useCache) {
-        return getCount(clazz, useCache, EnumDBMasterSlave.MASTER);
-    }
-
-    @Override
     public Number getCount(Class<?> clazz, boolean useCache, EnumDBMasterSlave masterSlave) {
-        String clusterName = ReflectUtil.getClusterName(clazz);
-        String tableName = ReflectUtil.getTableName(clazz);
+        String clusterName = entityMetaManager.getClusterName(clazz);
+        String tableName = entityMetaManager.getTableName(clazz);
 
         Transaction tx = null;
         IDBResource dbResource = null;
         try {
             tx = txManager.getTransaction();
+            boolean isFromSlave = false;
 
             // select db resource.
             if (EnumDBMasterSlave.MASTER == masterSlave || !this.dbCluster.isGlobalSlaveExist(clusterName)) {
                 dbResource = this.dbCluster.getMasterGlobalDBResource(clusterName, tableName);
             } else {
                 dbResource = this.dbCluster.getSlaveGlobalDBResource(clusterName, tableName, masterSlave);
+                isFromSlave = true;
             }
 
             if (tx != null) {
@@ -82,8 +73,14 @@ public class GlobalJdbcQueryImpl extends AbstractJdbcQuery implements IGlobalQue
             }
 
             long count = selectCountWithCache(dbResource, clazz, useCache).longValue();
-            if (count == 0) {
+            if (count == 0 && isFromSlave) {
+                dbResource.close();
                 dbResource = this.dbCluster.getMasterGlobalDBResource(clusterName, tableName);
+
+                if (tx != null) {
+                    tx.enlistResource((XAResource) dbResource);
+                }
+
                 count = selectCountWithCache(dbResource, clazz, useCache).longValue();
             }
 
@@ -106,29 +103,21 @@ public class GlobalJdbcQueryImpl extends AbstractJdbcQuery implements IGlobalQue
     }
 
     @Override
-    public Number getCountByQuery(IQuery query, Class<?> clazz) {
-        return getCountByQuery(query, clazz, true);
-    }
-
-    @Override
-    public Number getCountByQuery(IQuery query, Class<?> clazz, boolean useCache) {
-        return getCountByQuery(query, clazz, useCache, EnumDBMasterSlave.MASTER);
-    }
-
-    @Override
-    public Number getCountByQuery(IQuery query, Class<?> clazz, boolean useCache, EnumDBMasterSlave masterSlave) {
-        String clusterName = ReflectUtil.getClusterName(clazz);
-        String tableName = ReflectUtil.getTableName(clazz);
+    public <T> Number getCountByQuery(IQuery<T> query, Class<T> clazz, boolean useCache, EnumDBMasterSlave masterSlave) {
+        String clusterName = entityMetaManager.getClusterName(clazz);
+        String tableName = entityMetaManager.getTableName(clazz);
 
         Transaction tx = null;
         IDBResource dbResource = null;
         try {
             tx = txManager.getTransaction();
+            boolean isFromSlave = false;
 
             if (EnumDBMasterSlave.MASTER == masterSlave || !this.dbCluster.isGlobalSlaveExist(clusterName)) {
                 dbResource = this.dbCluster.getMasterGlobalDBResource(clusterName, tableName);
             } else {
                 dbResource = this.dbCluster.getSlaveGlobalDBResource(clusterName, tableName, masterSlave);
+                isFromSlave = true;
             }
 
             if (tx != null) {
@@ -136,8 +125,14 @@ public class GlobalJdbcQueryImpl extends AbstractJdbcQuery implements IGlobalQue
             }
 
             long count = selectCountByQuery(query, dbResource, clazz).longValue();
-            if (count == 0) {
+            if (count == 0 && isFromSlave) {
+                dbResource.close();
                 dbResource = this.dbCluster.getMasterGlobalDBResource(clusterName, tableName);
+
+                if (tx != null) {
+                    tx.enlistResource((XAResource) dbResource);
+                }
+
                 count = selectCountByQuery(query, dbResource, clazz).longValue();
             }
 
@@ -159,109 +154,55 @@ public class GlobalJdbcQueryImpl extends AbstractJdbcQuery implements IGlobalQue
     }
 
     @Override
-    public <T> T getByPk(PKValue pk, Class<T> clazz) {
-        return getByPk(pk, clazz, true);
-    }
+    public <T> T findByPk(EntityPK pk, Class<T> clazz, boolean useCache, EnumDBMasterSlave masterSlave) {
+        List<T> result = findByPkList(Lists.newArrayList(pk), clazz, null, useCache, masterSlave);
 
-    @Override
-    public <T> T getByPk(PKValue pk, Class<T> clazz, boolean useCache) {
-        return getByPk(pk, clazz, useCache, EnumDBMasterSlave.MASTER);
-    }
-
-    @Override
-    public <T> T getByPk(PKValue pk, Class<T> clazz, boolean useCache, EnumDBMasterSlave masterSlave) {
-        String clusterName = ReflectUtil.getClusterName(clazz);
-        String tableName = ReflectUtil.getTableName(clazz);
-
-        Transaction tx = null;
-        IDBResource dbResource = null;
-        try {
-
-            tx = txManager.getTransaction();
-
-            if (EnumDBMasterSlave.MASTER == masterSlave || !this.dbCluster.isGlobalSlaveExist(clusterName)) {
-                dbResource = this.dbCluster.getMasterGlobalDBResource(clusterName, tableName);
-            } else {
-                dbResource = this.dbCluster.getSlaveGlobalDBResource(clusterName, tableName, masterSlave);
-            }
-
-            if (tx != null) {
-                tx.enlistResource((XAResource) dbResource);
-            }
-
-            PKName[] pkNames = new PKName[] { ReflectUtil.getNotUnionPkName(clazz) };
-            PKValue[] pkValues = new PKValue[] { pk };
-            T data = selectByPkWithCache(dbResource, EntityPK.valueOf(pkNames, pkValues), clazz, useCache);
-            if (data == null) {
-                dbResource = this.dbCluster.getMasterGlobalDBResource(clusterName, tableName);
-                data = selectByPkWithCache(dbResource, EntityPK.valueOf(pkNames, pkValues), clazz, useCache);
-            }
-
-            return data;
-        } catch (Exception e) {
-            if (tx != null) {
-                try {
-                    tx.rollback();
-                } catch (Exception e1) {
-                    throw new DBOperationException(e1);
-                }
-            }
-            throw new DBOperationException(e);
-        } finally {
-            if (tx == null && dbResource != null) {
-                dbResource.close();
-            }
+        if (!result.isEmpty()) {
+            return result.get(0);
         }
+
+        return null;
     }
 
     @Override
-    public <T> List<T> findByPkList(List<PKValue> pks, Class<T> clazz) {
-        return findByPkList(pks, clazz, true);
-    }
-
-    @Override
-    public <T> List<T> findByPkList(List<PKValue> pks, Class<T> clazz, boolean useCache) {
-        return findByPkList(pks, clazz, useCache, EnumDBMasterSlave.MASTER);
-    }
-
-    @Override
-    public <T> List<T> findByPkList(List<PKValue> pkList, Class<T> clazz, boolean useCache,
+    public <T> List<T> findByPkList(List<EntityPK> pkList, Class<T> clazz, List<OrderBy> order, boolean useCache,
                                     EnumDBMasterSlave masterSlave) {
-        String clusterName = ReflectUtil.getClusterName(clazz);
-        String tableName = ReflectUtil.getTableName(clazz);
+        List<T> result = Lists.newArrayList();
+
+        String clusterName = entityMetaManager.getClusterName(clazz);
+        String tableName = entityMetaManager.getTableName(clazz);
 
         Transaction tx = null;
         IDBResource dbResource = null;
         try {
-
             tx = txManager.getTransaction();
+            boolean isFromSlave = false;
 
             if (EnumDBMasterSlave.MASTER == masterSlave || !this.dbCluster.isGlobalSlaveExist(clusterName)) {
                 dbResource = this.dbCluster.getMasterGlobalDBResource(clusterName, tableName);
             } else {
                 dbResource = this.dbCluster.getSlaveGlobalDBResource(clusterName, tableName, masterSlave);
+                isFromSlave = true;
             }
-
             if (tx != null) {
                 tx.enlistResource((XAResource) dbResource);
             }
 
-            List<EntityPK> entityPkList = Lists.newArrayList();
-            PKName[] pkNames = new PKName[] { ReflectUtil.getNotUnionPkName(clazz) };
-            for (PKValue pkValue : pkList) {
-                PKValue[] pkValues = new PKValue[] { pkValue };
-                entityPkList.add(EntityPK.valueOf(pkNames, pkValues));
-            }
-
-            List<T> data = selectByPksWithCache(dbResource, clazz,
-                    entityPkList.toArray(new EntityPK[entityPkList.size()]), useCache);
-            if (data.isEmpty()) {
+            EntityPK[] entityPks = pkList.toArray(new EntityPK[pkList.size()]);
+            Map<EntityPK, T> data = selectByPksWithCache(dbResource, clazz, entityPks, order, useCache);
+            if (data.isEmpty() && isFromSlave) {
+                dbResource.close();
                 dbResource = this.dbCluster.getMasterGlobalDBResource(clusterName, tableName);
-                data = selectByPksWithCache(dbResource, clazz, entityPkList.toArray(new EntityPK[entityPkList.size()]),
-                        useCache);
+
+                if (tx != null) {
+                    tx.enlistResource((XAResource) dbResource);
+                }
+
+                data = selectByPksWithCache(dbResource, clazz, entityPks, order, useCache);
             }
 
-            return data;
+            result.addAll(data.values());
+            return result;
         } catch (Exception e) {
             if (tx != null) {
                 try {
@@ -278,94 +219,85 @@ public class GlobalJdbcQueryImpl extends AbstractJdbcQuery implements IGlobalQue
         }
     }
 
+    @SuppressWarnings("unchecked")
     @Override
-    public <T> T findOneByQuery(IQuery query, Class<T> clazz) {
-        return findOneByQuery(query, clazz, true);
-    }
+    public <T> List<T> findByQuery(IQuery<T> query, Class<T> clazz, boolean useCache, EnumDBMasterSlave masterSlave) {
+        List<T> result = Lists.newArrayList();
 
-    @Override
-    public <T> T findOneByQuery(IQuery query, Class<T> clazz, boolean useCache) {
-        return findOneByQuery(query, clazz, useCache, EnumDBMasterSlave.MASTER);
-    }
-
-    @Override
-    public <T> T findOneByQuery(IQuery query, Class<T> clazz, boolean useCache, EnumDBMasterSlave masterSlave) {
-        List<T> entities = findByQuery(query, clazz, useCache, masterSlave);
-
-        if (entities.isEmpty()) {
-            return null;
-        }
-
-        return entities.get(0);
-    }
-
-    @Override
-    public <T> List<T> findByQuery(IQuery query, Class<T> clazz) {
-        return findByQuery(query, clazz, true);
-    }
-
-    @Override
-    public <T> List<T> findByQuery(IQuery query, Class<T> clazz, boolean useCache) {
-        return findByQuery(query, clazz, useCache, EnumDBMasterSlave.MASTER);
-    }
-
-    @Override
-    public <T> List<T> findByQuery(IQuery query, Class<T> clazz, boolean useCache, EnumDBMasterSlave masterSlave) {
         if (query == null) {
-            query = new QueryImpl();
+            query = new DefaultQueryImpl<T>();
         }
 
-        String clusterName = ReflectUtil.getClusterName(clazz);
-        String tableName = ReflectUtil.getTableName(clazz);
+        String clusterName = entityMetaManager.getClusterName(clazz);
+        String tableName = entityMetaManager.getTableName(clazz);
+
+        if (isSecondCacheAvailable(clazz, useCache)) {
+            String sCacheKey = ((DefaultQueryImpl<T>) query).getWhereSql().getSecondCacheKey();
+            List<T> sCacheData = secondCache.getGlobal(sCacheKey, clusterName, tableName);
+            if (sCacheData != null) {
+                return sCacheData;
+            }
+        }
 
         Transaction tx = null;
         IDBResource dbResource = null;
         try {
             tx = txManager.getTransaction();
+            boolean isFromSlave = false;
 
             if (EnumDBMasterSlave.MASTER == masterSlave || !this.dbCluster.isGlobalSlaveExist(clusterName)) {
                 dbResource = this.dbCluster.getMasterGlobalDBResource(clusterName, tableName);
             } else {
                 dbResource = this.dbCluster.getSlaveGlobalDBResource(clusterName, tableName, masterSlave);
+                isFromSlave = true;
             }
 
             if (tx != null) {
                 tx.enlistResource((XAResource) dbResource);
             }
 
-            List<T> result = null;
+            if (isCacheAvailable(clazz, useCache)) {
+                EntityPK[] entityPks = selectPksByQuery(dbResource, query, clazz);
+                Map<EntityPK, T> datas = selectByPksWithCache(dbResource, clazz, entityPks,
+                        ((DefaultQueryImpl<T>) query).getOrderList(), useCache);
+
+                if ((datas == null || datas.isEmpty()) && isFromSlave) {
+                    dbResource.close();
+                    dbResource = this.dbCluster.getMasterGlobalDBResource(clusterName, tableName);
+
+                    if (tx != null) {
+                        tx.enlistResource((XAResource) dbResource);
+                    }
+
+                    datas = selectByPksWithCache(dbResource, clazz, entityPks,
+                            ((DefaultQueryImpl<T>) query).getOrderList(), useCache);
+                }
+
+                result.addAll(datas.values());
+            } else {
+                result = selectByQuery(dbResource, query, clazz);
+                if ((result == null || result.isEmpty()) && isFromSlave) {
+                    dbResource.close();
+                    dbResource = this.dbCluster.getMasterGlobalDBResource(clusterName, tableName);
+
+                    if (tx != null) {
+                        tx.enlistResource((XAResource) dbResource);
+                    }
+
+                    result = selectByQuery(dbResource, query, clazz);
+                }
+            }
 
             if (isSecondCacheAvailable(clazz, useCache)) {
-                result = (List<T>) secondCache.getGlobal(query.getWhereSql(), clusterName, tableName);
-            }
-
-            if (result == null || result.isEmpty()) {
-                if (isCacheAvailable(clazz, useCache)) {
-                    EntityPK[] entityPks = selectPksByQuery(dbResource, query, clazz);
-                    result = selectByPksWithCache(dbResource, clazz, entityPks, useCache);
-
-                    if (result == null) {
-                        dbResource = this.dbCluster.getMasterGlobalDBResource(clusterName, tableName);
-                        result = selectByPksWithCache(dbResource, clazz, entityPks, useCache);
-                    }
-                } else {
-                    result = selectByQuery(dbResource, query, clazz);
-                    if (result == null) {
-                        dbResource = this.dbCluster.getMasterGlobalDBResource(clusterName, tableName);
-                        result = selectByQuery(dbResource, query, clazz);
-                    }
-                }
-
-                if (isSecondCacheAvailable(clazz, useCache)) {
-                    secondCache.putGlobal(query.getWhereSql(), clusterName, tableName, result);
-                }
+                String sCacheKey = ((DefaultQueryImpl<T>) query).getWhereSql().getSecondCacheKey();
+                secondCache.putGlobal(sCacheKey, clusterName, tableName, result);
             }
 
             // 过滤从缓存结果, 将没有指定的字段设置为默认值.
             List<T> filteResult = new ArrayList<T>(result.size());
-            if (query.hasQueryFields()) {
+            if (((DefaultQueryImpl<T>) query).hasQueryFields()) {
                 for (T obj : result) {
-                    filteResult.add((T) ReflectUtil.cloneWithGivenField(obj, query.getFields()));
+                    filteResult.add((T) BeansUtil.cloneWithGivenField(obj, ((DefaultQueryImpl<T>) query).getFields()));
                 }
                 result = filteResult;
             }
@@ -388,14 +320,7 @@ public class GlobalJdbcQueryImpl extends AbstractJdbcQuery implements IGlobalQue
     }
 
     @Override
-    public List<Map<String, Object>> findBySql(SQL sql, Class<?> clazz) {
-        return findBySql(sql, clazz, EnumDBMasterSlave.MASTER);
-    }
-
-    @Override
-    public List<Map<String, Object>> findBySql(SQL sql, Class<?> clazz, EnumDBMasterSlave masterSlave) {
-        String clusterName = ReflectUtil.getClusterName(clazz);
-
+    public List<Map<String, Object>> findBySql(SQL sql, String clusterName, EnumDBMasterSlave masterSlave) {
         IDBResource next = null;
 
         for (String tableName : sql.getTableNames()) {

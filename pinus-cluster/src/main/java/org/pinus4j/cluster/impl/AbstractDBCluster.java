@@ -25,6 +25,7 @@ import java.util.Random;
 import java.util.concurrent.locks.Lock;
 
 import javax.sql.DataSource;
+import javax.transaction.SystemException;
 import javax.transaction.TransactionManager;
 
 import org.apache.curator.framework.CuratorFramework;
@@ -55,7 +56,6 @@ import org.pinus4j.cluster.config.impl.XmlClusterConfigImpl;
 import org.pinus4j.cluster.enums.EnumDB;
 import org.pinus4j.cluster.enums.EnumDBMasterSlave;
 import org.pinus4j.cluster.enums.EnumSyncAction;
-import org.pinus4j.cluster.resources.DBResourceCache;
 import org.pinus4j.cluster.resources.GlobalDBResource;
 import org.pinus4j.cluster.resources.IDBResource;
 import org.pinus4j.cluster.resources.ShardingDBResource;
@@ -76,12 +76,12 @@ import org.pinus4j.generator.IDBGenerator;
 import org.pinus4j.generator.IDBGeneratorBuilder;
 import org.pinus4j.generator.IIdGenerator;
 import org.pinus4j.generator.impl.DistributedSequenceIdGeneratorImpl;
+import org.pinus4j.transaction.ITransaction;
 import org.pinus4j.transaction.impl.BestEffortsOnePCJtaTransactionManager;
 import org.pinus4j.utils.CuratorDistributeedLock;
 import org.pinus4j.utils.IOUtil;
 import org.pinus4j.utils.JdbcUtil;
-import org.pinus4j.utils.ReflectUtil;
-import org.pinus4j.utils.StringUtils;
+import org.pinus4j.utils.StringUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -96,14 +96,14 @@ public abstract class AbstractDBCluster implements IDBCluster {
     /**
      * 日志
      */
-    private static final Logger        LOG        = LoggerFactory.getLogger(AbstractDBCluster.class);
+    private static final Logger        LOG               = LoggerFactory.getLogger(AbstractDBCluster.class);
 
-    public static final Random         r          = new Random();
+    public static final Random         r                 = new Random();
 
     /**
      * 同步数据表操作.
      */
-    private EnumSyncAction             syncAction = EnumSyncAction.CREATE;
+    private EnumSyncAction             syncAction        = EnumSyncAction.CREATE;
 
     /**
      * 扫描数据对象包.
@@ -118,12 +118,12 @@ public abstract class AbstractDBCluster implements IDBCluster {
     /**
      * 数据库类型.
      */
-    protected EnumDB                   enumDb     = EnumDB.MYSQL;
+    protected EnumDB                   enumDb            = EnumDB.MYSQL;
 
     /**
      * Entity管理器
      */
-    private IEntityMetaManager         entityManager;
+    private IEntityMetaManager         entityMetaManager = DefaultEntityMetaManager.getInstance();
 
     /**
      * 数据库表生成器.
@@ -231,9 +231,6 @@ public abstract class AbstractDBCluster implements IDBCluster {
             throw new IllegalStateException("初始化zookeeper根目录失败");
         }
 
-        // init entity manager
-        this.entityManager = DefaultEntityMetaManager.getInstance();
-
         //
         // init id generator
         //
@@ -273,7 +270,7 @@ public abstract class AbstractDBCluster implements IDBCluster {
                 // get table sharding info from zookeeper
                 tables = getDBTableFromZk();
             } else {
-                if (StringUtils.isBlank(scanPackage)) {
+                if (StringUtil.isBlank(scanPackage)) {
                     throw new DBClusterException(
                             "get shardinfo from jvm, but i can't find scanpackage full path, did you forget setScanPackage ?");
                 }
@@ -368,9 +365,6 @@ public abstract class AbstractDBCluster implements IDBCluster {
             throw new DBClusterException("关闭数据库集群失败", e);
         }
 
-        // clear resource cache.
-        DBResourceCache.clear();
-
         // close curator
         CloseableUtils.closeQuietly(this.curatorClient);
     }
@@ -389,17 +383,15 @@ public abstract class AbstractDBCluster implements IDBCluster {
 
         IDBResource masterDBResource;
         try {
-            masterDBResource = GlobalDBResource.valueOf(masterDBInfo, tableName);
+            ITransaction tx = (ITransaction) txManager.getTransaction();
+            masterDBResource = GlobalDBResource.valueOf(tx, masterDBInfo, tableName);
         } catch (SQLException e) {
             throw new DBClusterException(e);
+        } catch (SystemException e) {
+            throw new DBOperationException(e);
         }
 
         return masterDBResource;
-    }
-
-    @Override
-    public IEntityMetaManager getEntityManager() {
-        return this.entityManager;
     }
 
     @Override
@@ -418,16 +410,19 @@ public abstract class AbstractDBCluster implements IDBCluster {
         DBInfo slaveDBInfo = null;
         if (EnumDBMasterSlave.AUTO == masterSlave) {
             // random select
-            slaveDBInfo = slaveDbs.get(r.nextInt(slaveDbs.size() - 1));
+            slaveDBInfo = slaveDbs.get(r.nextInt(slaveDbs.size()));
         } else {
             slaveDBInfo = slaveDbs.get(masterSlave.getValue());
         }
 
         IDBResource slaveDBResource;
         try {
-            slaveDBResource = GlobalDBResource.valueOf(slaveDBInfo, tableName);
+            ITransaction tx = (ITransaction) txManager.getTransaction();
+            slaveDBResource = GlobalDBResource.valueOf(tx, slaveDBInfo, tableName);
         } catch (SQLException e) {
             throw new DBClusterException(e);
+        } catch (SystemException e) {
+            throw new DBOperationException(e);
         }
 
         return slaveDBResource;
@@ -469,9 +464,12 @@ public abstract class AbstractDBCluster implements IDBCluster {
         // 返回分库分表信息
         ShardingDBResource db;
         try {
-            db = ShardingDBResource.valueOf(dbInfo, regionInfo, tableName, tableIndex);
+            ITransaction tx = (ITransaction) txManager.getTransaction();
+            db = ShardingDBResource.valueOf(tx, dbInfo, regionInfo, tableName, tableIndex);
         } catch (SQLException e) {
             throw new DBClusterException(e);
+        } catch (SystemException e) {
+            throw new DBOperationException(e);
         }
 
         return db;
@@ -516,22 +514,26 @@ public abstract class AbstractDBCluster implements IDBCluster {
         // 返回分库分表信息
         ShardingDBResource db;
         try {
-            db = ShardingDBResource.valueOf(dbInfo, regionInfo, tableName, tableIndex);
+            ITransaction tx = (ITransaction) txManager.getTransaction();
+            db = ShardingDBResource.valueOf(tx, dbInfo, regionInfo, tableName, tableIndex);
         } catch (SQLException e) {
             throw new DBClusterException(e);
+        } catch (SystemException e) {
+            throw new DBOperationException(e);
         }
+
         return db;
     }
 
     @Override
-    public List<IDBResource> getAllMasterShardingDBResource(Class<?> clazz) throws SQLException {
-        int tableNum = ReflectUtil.getTableNum(clazz);
+    public List<IDBResource> getAllMasterShardingDBResource(Class<?> clazz) throws SQLException, SystemException {
+        int tableNum = entityMetaManager.getTableNum(clazz);
         if (tableNum == 0) {
             throw new IllegalStateException("table number is 0");
         }
 
-        String clusterName = ReflectUtil.getClusterName(clazz);
-        String tableName = ReflectUtil.getTableName(clazz);
+        String clusterName = entityMetaManager.getClusterName(clazz);
+        String tableName = entityMetaManager.getTableName(clazz);
 
         return getAllMasterShardingDBResource(tableNum, clusterName, tableName);
     }
@@ -544,21 +546,24 @@ public abstract class AbstractDBCluster implements IDBCluster {
      * @param tableName
      * @return
      * @throws SQLException
+     * @throws SystemException
      */
     public List<IDBResource> getAllMasterShardingDBResource(int tableNum, String clusterName, String tableName)
-            throws SQLException {
+            throws SQLException, SystemException {
         List<IDBResource> dbResources = new ArrayList<IDBResource>();
 
         if (tableNum == 0) {
             throw new IllegalStateException("table number is 0");
         }
 
+        ITransaction tx = (ITransaction) txManager.getTransaction();
+
         IDBResource dbResource = null;
         DBClusterInfo dbClusterInfo = this.getDBClusterInfo(clusterName);
         for (DBRegionInfo region : dbClusterInfo.getDbRegions()) {
             for (DBInfo dbInfo : region.getMasterDBInfos()) {
                 for (int tableIndex = 0; tableIndex < tableNum; tableIndex++) {
-                    dbResource = ShardingDBResource.valueOf(dbInfo, region, tableName, tableIndex);
+                    dbResource = ShardingDBResource.valueOf(tx, dbInfo, region, tableName, tableIndex);
                     dbResources.add(dbResource);
                 }
             }
@@ -569,16 +574,18 @@ public abstract class AbstractDBCluster implements IDBCluster {
 
     @Override
     public List<IDBResource> getAllSlaveShardingDBResource(Class<?> clazz, EnumDBMasterSlave masterSlave)
-            throws SQLException, DBClusterException {
+            throws SQLException, DBClusterException, SystemException {
         List<IDBResource> dbResources = new ArrayList<IDBResource>();
 
-        int tableNum = ReflectUtil.getTableNum(clazz);
+        int tableNum = entityMetaManager.getTableNum(clazz);
         if (tableNum == 0) {
             throw new IllegalStateException("table number is 0");
         }
 
-        String clusterName = ReflectUtil.getClusterName(clazz);
-        String tableName = ReflectUtil.getTableName(clazz);
+        String clusterName = entityMetaManager.getClusterName(clazz);
+        String tableName = entityMetaManager.getTableName(clazz);
+
+        ITransaction tx = (ITransaction) txManager.getTransaction();
 
         IDBResource dbResource = null;
         DBClusterInfo dbClusterInfo = this.getDBClusterInfo(clusterName);
@@ -587,7 +594,7 @@ public abstract class AbstractDBCluster implements IDBCluster {
 
             // auto select
             if (EnumDBMasterSlave.AUTO == masterSlave) {
-                slaveDBInfos = region.getSlaveDBInfos().get(r.nextInt(region.getSlaveDBInfos().size() - 1));
+                slaveDBInfos = region.getSlaveDBInfos().get(r.nextInt(region.getSlaveDBInfos().size()));
             } else {
                 slaveDBInfos = region.getSlaveDBInfos().get(masterSlave.getValue());
             }
@@ -598,7 +605,7 @@ public abstract class AbstractDBCluster implements IDBCluster {
 
             for (DBInfo dbInfo : slaveDBInfos) {
                 for (int tableIndex = 0; tableIndex < tableNum; tableIndex++) {
-                    dbResource = ShardingDBResource.valueOf(dbInfo, region, tableName, tableIndex);
+                    dbResource = ShardingDBResource.valueOf(tx, dbInfo, region, tableName, tableIndex);
                     dbResources.add(dbResource);
                 }
             }
@@ -667,7 +674,7 @@ public abstract class AbstractDBCluster implements IDBCluster {
             byte[] tableData = null;
             for (String zkTableNode : zkTableNodes) {
                 tableData = zkClient.getData(Const.ZK_SHARDINGINFO + "/" + zkTableNode, false, null);
-                tables.add(IOUtil.getObject(tableData, DBTable.class));
+                tables.add(IOUtil.getObjectByJava(tableData, DBTable.class));
             }
         } catch (Exception e) {
             throw new RuntimeException(e);
@@ -679,10 +686,10 @@ public abstract class AbstractDBCluster implements IDBCluster {
     @Override
     public List<DBTable> getDBTableFromJvm() {
         for (String pkgPath : this.scanPackage.split(",")) {
-            this.entityManager.loadEntity(pkgPath);
+            this.entityMetaManager.loadEntity(pkgPath);
         }
 
-        return this.entityManager.getTableMetaList();
+        return this.entityMetaManager.getTableMetaList();
     }
 
     /**
@@ -701,7 +708,7 @@ public abstract class AbstractDBCluster implements IDBCluster {
             byte[] tableData = null;
             String tableName = null;
             for (DBTable table : tables) {
-                tableData = IOUtil.getBytes(table);
+                tableData = IOUtil.getBytesByJava(table);
                 tableName = table.getName();
 
                 // toBeCleanInfo.remove(tableName);
@@ -863,7 +870,7 @@ public abstract class AbstractDBCluster implements IDBCluster {
     private IClusterConfig _getConfig(String xmlFilePath) throws LoadConfigException {
         IClusterConfig config = null;
 
-        if (StringUtils.isBlank(xmlFilePath)) {
+        if (StringUtil.isBlank(xmlFilePath)) {
             config = XmlClusterConfigImpl.getInstance();
         } else {
             config = XmlClusterConfigImpl.getInstance(xmlFilePath);
